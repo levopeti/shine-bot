@@ -1,0 +1,37 @@
+# Data fetching
+yfinance>=0.2.48
+alpha_vantage>=2.3.1
+python-binance>=1.0.19
+ccxt>=4.4.40
+
+# Data processing
+pandas>=2.2.0
+numpy>=1.26.0
+scikit-learn>=1.4.0
+
+# Deep Learning
+torch>=2.2.0
+stable-baselines3>=2.3.0
+
+# Reinforcement Learning Environment
+gym>=0.26.0
+gymnasium>=0.29.0
+
+# Backtesting
+backtrader>=1.9.78
+backtesting>=0.3.3
+
+# Visualization
+plotly>=5.18.0
+dash>=2.14.2
+matplotlib>=3.8.0
+seaborn>=0.13.0
+
+# Utilities
+python-dotenv>=1.0.0
+tqdm>=4.66.0
+requests>=2.31.0
+
+# Live trading (optional)
+ib-insync>=0.9.86
+alpaca-trade-api>=3.1.1
