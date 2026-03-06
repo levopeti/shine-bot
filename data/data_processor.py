@@ -17,10 +17,9 @@ class DataProcessor:
     def __init__(self):
         self.scaler = StandardScaler()
 
-    def calculate_technical_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Calculate technical indicators (SMA, EMA, RSI, MACD, Bollinger Bands)
-        """
+    @staticmethod
+    def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
+        """ Calculate technical indicators (SMA, EMA, RSI, MACD, Bollinger Bands) """
         # Simple Moving Averages
         df['SMA_20'] = df['Close'].rolling(window=20).mean()
         df['SMA_50'] = df['Close'].rolling(window=50).mean()
@@ -60,7 +59,7 @@ class DataProcessor:
         Combine and process data from multiple asset classes
         Create a unified dataframe with all features
         """
-        processed_dfs = []
+        processed_dfs = list()
 
         for asset_class, data in all_data.items():
             if data.empty:
@@ -117,10 +116,9 @@ class DataProcessor:
 
         return features
 
-    def split_data(self, df: pd.DataFrame, train_ratio: float = 0.7) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """
-        Split data into training and testing sets
-        """
+    @staticmethod
+    def split_data(df: pd.DataFrame, train_ratio: float = 0.7) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """ Split data into training and testing sets """
         split_idx = int(len(df) * train_ratio)
         train_df = df.iloc[:split_idx]
         test_df = df.iloc[split_idx:]

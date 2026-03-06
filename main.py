@@ -3,8 +3,9 @@
 import os
 import argparse
 import logging
-from datetime import datetime
+import pandas as pd
 
+from datetime import datetime
 from config.settings import Config
 from data.data_fetcher import DataFetcher
 from data.data_processor import DataProcessor
@@ -21,6 +22,9 @@ from visualization.dashboard import TradingDashboard
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+pd.set_option('display.max_columns', None)
+# pd.set_option('display.max_rows', None)
 
 
 def create_agent(agent_type: str, state_dim: int, action_dim: int, config):
@@ -47,9 +51,9 @@ def create_agent(agent_type: str, state_dim: int, action_dim: int, config):
 
 
 def train_agent(config, agent_type='dl', num_episodes=100):
-    logger.info("="*60)
+    logger.info("=" * 60)
     logger.info(f"TRAINING - Agent: {agent_type}")
-    logger.info("="*60)
+    logger.info("=" * 60)
 
     data_fetcher = DataFetcher(config)
     all_data = data_fetcher.fetch_all_market_data(config.TRAIN_START_DATE, config.TRAIN_END_DATE)
@@ -59,7 +63,7 @@ def train_agent(config, agent_type='dl', num_episodes=100):
 
     if processed_data.empty:
         logger.error("No data!")
-        return
+        return None
 
     env = TradingEnvironment(processed_data, config, mode='train')
     agent = create_agent(agent_type, env.observation_space.shape[0], env.action_space.shape[0], config)
@@ -89,12 +93,13 @@ def train_agent(config, agent_type='dl', num_episodes=100):
 
         avg_loss = episode_loss / steps if steps > 0 else 0
         logger.info(
-            f"Ep {episode+1}/{num_episodes} - Return: {info['return']*100:.2f}% - "
-            f"Portfolio: ${info['portfolio_value']:.2f} - Trades: {info['total_trades']} - Loss: {avg_loss:.4f}"
+            f"Ep {episode + 1}/{num_episodes} - Return: {info['return'] * 100:.2f}% - "
+            f"Portfolio: ${info['portfolio_value']:.2f} - Trades: {info['total_trades']} - Loss: {avg_loss:.4f} - "
+            f"Epsilon {agent.epsilon:.2f}"
         )
 
         if (episode + 1) % 10 == 0:
-            model_path = os.path.join(config.MODEL_DIR, f"{agent_type}_agent_ep{episode+1}.pth")
+            model_path = os.path.join(config.MODEL_DIR, f"{agent_type}_agent_ep{episode + 1}.pth")
             os.makedirs(config.MODEL_DIR, exist_ok=True)
             if hasattr(agent, 'save_model'):
                 agent.save_model(model_path)
@@ -108,9 +113,9 @@ def train_agent(config, agent_type='dl', num_episodes=100):
 
 
 def backtest_agent(config, agent_type='dl', model_path=None):
-    logger.info("="*60)
+    logger.info("=" * 60)
     logger.info(f"BACKTESTING - Agent: {agent_type}")
-    logger.info("="*60)
+    logger.info("=" * 60)
 
     data_fetcher = DataFetcher(config)
     all_data = data_fetcher.fetch_all_market_data(config.TEST_START_DATE, config.TEST_END_DATE)
@@ -120,7 +125,7 @@ def backtest_agent(config, agent_type='dl', model_path=None):
 
     if processed_data.empty:
         logger.error("No data!")
-        return
+        return None
 
     env = TradingEnvironment(processed_data, config, mode='test')
     agent = create_agent(agent_type, env.observation_space.shape[0], env.action_space.shape[0], config)
@@ -145,19 +150,23 @@ def backtest_agent(config, agent_type='dl', model_path=None):
 def run_dashboard(config, agent_type='dl', model_path=None):
     logger.info("Starting dashboard...")
     results, data = backtest_agent(config, agent_type, model_path)
-    dashboard = TradingDashboard(config)
-    dashboard.run(debug=True)
+
+    dashboard = TradingDashboard(
+        config=config,
+        backtest_results=results,
+        backtest_data=data
+    )
+    dashboard.run(debug=False)
 
 
 def main():
     parser = argparse.ArgumentParser(
         description="AI Trading Framework",
-        epilog="""
-Examples:
-  python main.py --mode train --agent dl --episodes 100
-  python main.py --mode train --agent ml_rf --episodes 50
-  python main.py --mode backtest --agent ensemble
-        """
+        epilog=""" Examples:
+                   python main.py --mode train --agent dl --episodes 100
+                   python main.py --mode train --agent ml_rf --episodes 50
+                   python main.py --mode backtest --agent ensemble
+               """
     )
 
     parser.add_argument('--mode', type=str, choices=['train', 'backtest', 'dashboard'], required=True)

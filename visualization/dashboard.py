@@ -1,164 +1,299 @@
-# visualization/dashboard.py
+# visualization/dashboard.py - TELJES MŰKÖDŐ DASHBOARD (TE pontos struktúrával)
 
 import dash
-from dash import dcc, html
+from dash import dcc, html, dash_table
 from dash.dependencies import Input, Output
 import plotly.graph_objs as go
+import plotly.express as px
 import pandas as pd
 import numpy as np
-from typing import Dict
+from typing import Dict, Any
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class TradingDashboard:
     """
-    Real-time trading dashboard using Dash and Plotly
+    Teljes körű Trading Dashboard - A TE backtest_results struktúrával
     """
 
-    def __init__(self, config):
+    def __init__(self, config, backtest_results=None, backtest_data=None):
         self.config = config
-        self.app = dash.Dash(__name__)
-        self.setup_layout()
 
-    def setup_layout(self):
-        """
-        Setup dashboard layout
-        """
+        # TE pontos backtest_results struktúra
+        self.backtest_results = backtest_results or self._generate_dummy_results_te()
+        self.backtest_data = backtest_data
+
+        # Dash app
+        self.app = dash.Dash(__name__, suppress_callback_exceptions=True)
+        self.app.title = "AI Trading Dashboard"
+
+        # Layout és callback-ek
+        self._setup_layout()
+        self._setup_callbacks()
+
+    def _generate_dummy_results_te(self):
+        """Dummy adatok a TE pontos struktúrával"""
+        np.random.seed(42)
+        dates = pd.date_range('2025-01-01', periods=252, freq='B')
+
+        # Portfolio values
+        returns = np.random.normal(0.0008, 0.02, 252)
+        portfolio_values = 100000 * np.cumprod(1 + returns)
+        daily_returns = pd.Series(returns, index=dates)
+
+        return {
+            'total_return': (portfolio_values[-1] / 100000 - 1),
+            'sharpe_ratio': 1.25,
+            'max_drawdown': -0.125,
+            'win_rate': 0.582,
+            'final_portfolio_value': portfolio_values[-1],
+            'total_trades': 87,
+            'portfolio_values': portfolio_values,
+            'daily_returns': daily_returns
+        }
+
+    def _setup_layout(self):
+        """Teljes dashboard layout"""
         self.app.layout = html.Div([
-            html.H1("AI Trading Framework Dashboard", style={'textAlign': 'center'}),
-
-            # Portfolio value chart
+            # Header
             html.Div([
-                html.H3("Portfolio Value Over Time"),
-                dcc.Graph(id='portfolio-chart')
-            ]),
+                html.H1("🤖 AI Trading Dashboard",
+                        style={'textAlign': 'center', 'color': '#2ecc71'}),
+                html.P("Portfolio teljesítmény elemzése",
+                       style={'textAlign': 'center', 'color': '#95a5a6', 'fontSize': 18})
+            ], style={'background': 'linear-gradient(90deg, #2ecc71, #27ae60)',
+                      'color': 'white', 'padding': '20px', 'borderRadius': 10, 'marginBottom': 30}),
 
-            # Performance metrics
+            # Row 1: Portfolio chart + Metrics
             html.Div([
-                html.H3("Performance Metrics"),
-                html.Div(id='metrics-display')
-            ]),
+                # Portfolio chart
+                html.Div([
+                    html.H3("📈 Portfolio Alakulása", style={'color': '#2ecc71', 'textAlign': 'center'}),
+                    dcc.Graph(id='portfolio-chart')
+                ], style={'flex': 2, 'padding': '20px'}),
 
-            # Asset allocation
+                # Metrics cards - TE pontos kulcsokkal!
+                html.Div([
+                    html.H3("📊 Teljesítmény Mutatók", style={'color': '#3498db', 'textAlign': 'center'}),
+                    html.Div(id='metrics-cards')
+                ], style={'flex': 1, 'padding': '20px'})
+            ], style={'display': 'flex', 'marginBottom': 30}),
+
+            # Row 2: Daily Returns + Portfolio Values Table
             html.Div([
-                html.H3("Current Asset Allocation"),
-                dcc.Graph(id='allocation-chart')
-            ]),
+                html.Div([
+                    html.H3("📉 Napi Hozam/Mínuszok", style={'color': '#e74c3c'}),
+                    dcc.Graph(id='daily-returns-chart')
+                ], style={'flex': 1, 'padding': '20px'}),
 
-            # Price charts
-            html.Div([
-                html.H3("Asset Price Comparison"),
-                dcc.Dropdown(
-                    id='asset-selector',
-                    multi=True,
-                    placeholder="Select assets to compare"
-                ),
-                dcc.Graph(id='price-chart')
-            ]),
+                html.Div([
+                    html.H3("💰 Portfolio Érték Történet", style={'color': '#f39c12'}),
+                    dash_table.DataTable(
+                        id='portfolio-table',
+                        columns=[
+                            {"name": "Nap", "id": "step"},
+                            {"name": "Portfolio ($)", "id": "value", "type": "numeric",
+                             "format": {"specifier": ",.0f"}},
+                            {"name": "Napi %", "id": "daily_pct", "type": "numeric", "format": {"specifier": ",.2f%"}}
+                        ],
+                        style_cell={'textAlign': 'right'},
+                        style_data_conditional=[
+                            {'if': {'filter_query': '{daily_pct} > 0'}, 'backgroundColor': '#d5f4e6'},
+                            {'if': {'filter_query': '{daily_pct} < 0'}, 'backgroundColor': '#fadbd8'}
+                        ],
+                        page_size=20
+                    )
+                ], style={'flex': 1, 'padding': '20px'})
+            ], style={'display': 'flex', 'marginBottom': 30}),
 
-            # Update interval
-            dcc.Interval(
-                id='interval-component',
-                interval=self.config.UPDATE_INTERVAL,
-                n_intervals=0
+            # Auto-refresh
+            dcc.Interval(id='interval-component', interval=30 * 1000, n_intervals=0)
+        ], style={'maxWidth': '1400px', 'margin': '0 auto', 'padding': '20px'})
+
+    def _setup_callbacks(self):
+        """Callback-ek a TE pontos backtest_results-szal"""
+
+        # 1. Portfolio chart - TE 'portfolio_values'
+        @self.app.callback(
+            Output('portfolio-chart', 'figure'),
+            Input('interval-component', 'n_intervals')
+        )
+        def update_portfolio_chart(n):
+            fig = go.Figure()
+
+            # TE pontos kulcsok!
+            portfolio_values = self.backtest_results['portfolio_values']
+            dates = np.arange(len(portfolio_values))  # Step index
+
+            # Portfolio görbe
+            fig.add_trace(go.Scatter(
+                x=dates, y=portfolio_values,
+                mode='lines+markers',
+                name='Portfolio Érték',
+                line=dict(color='#2ecc71', width=4),
+                marker=dict(size=3)
+            ))
+
+            # Kezdő tőke vonal
+            fig.add_hline(
+                y=self.config.INITIAL_BALANCE if hasattr(self.config, 'INITIAL_BALANCE') else 100000,
+                line_dash="dash", line_color="gray",
+                annotation_text="Kezdő tőke"
             )
-        ])
 
-    def create_portfolio_chart(self, portfolio_values: np.ndarray):
-        """
-        Create portfolio value line chart
-        """
-        fig = go.Figure()
+            # Teljesítmény vonal
+            fig.add_hline(
+                y=self.backtest_results['final_portfolio_value'],
+                line_dash="dot", line_color="#3498db",
+                annotation_text=f"Végső érték: ${self.backtest_results['final_portfolio_value']:,.0f}"
+            )
 
-        fig.add_trace(go.Scatter(
-            y=portfolio_values,
-            mode='lines',
-            name='Portfolio Value',
-            line=dict(color='#2ecc71', width=2)
-        ))
+            fig.update_layout(
+                title=f"Portfolio Alakulása (Total Return: {self.backtest_results['total_return'] * 100:.1f}%)",
+                xaxis_title="Napok", yaxis_title="Portfolio Érték ($)",
+                hovermode='x unified', template='plotly_white',
+                height=500
+            )
 
-        fig.add_hline(
-            y=self.config.INITIAL_BALANCE,
-            line_dash="dash",
-            line_color="gray",
-            annotation_text="Initial Balance"
+            return fig
+
+        # 2. Metrics cards - TE pontos kulcsokkal!
+        @self.app.callback(
+            Output('metrics-cards', 'children'),
+            Input('interval-component', 'n_intervals')
         )
+        def update_metrics(n):
+            results = self.backtest_results  # TE struktúra
 
-        fig.update_layout(
-            xaxis_title="Time Steps",
-            yaxis_title="Portfolio Value ($)",
-            hovermode='x unified',
-            template='plotly_dark'
+            cards = html.Div([
+                # Total Return
+                html.Div([
+                    html.H2(f"{results['total_return'] * 100:.1f}%"),
+                    html.P("Teljes Return", style={'color': '#7f8c8d'}),
+                    html.Span("🟢", style={'fontSize': 30})
+                ], style={
+                    'background': 'linear-gradient(135deg, #2ecc71, #27ae60)',
+                    'color': 'white', 'padding': '20px', 'borderRadius': 15,
+                    'textAlign': 'center', 'margin': '10px', 'boxShadow': '0 4px 12px rgba(0,0,0,0.15)'
+                }),
+
+                # Sharpe Ratio
+                html.Div([
+                    html.H2(f"{results['sharpe_ratio']:.2f}"),
+                    html.P("Sharpe Ratio", style={'color': '#7f8c8d'}),
+                    html.Span("📊", style={'fontSize': 30})
+                ], style={
+                    'background': 'linear-gradient(135deg, #3498db, #2980b9)',
+                    'color': 'white', 'padding': '20px', 'borderRadius': 15,
+                    'textAlign': 'center', 'margin': '10px', 'boxShadow': '0 4px 12px rgba(0,0,0,0.15)'
+                }),
+
+                # Max Drawdown
+                html.Div([
+                    html.H2(f"{results['max_drawdown'] * 100:.1f}%"),
+                    html.P("Max. Visszaesés", style={'color': '#7f8c8d'}),
+                    html.Span("📉", style={'fontSize': 30})
+                ], style={
+                    'background': 'linear-gradient(135deg, #e74c3c, #c0392b)',
+                    'color': 'white', 'padding': '20px', 'borderRadius': 15,
+                    'textAlign': 'center', 'margin': '10px', 'boxShadow': '0 4px 12px rgba(0,0,0,0.15)'
+                }),
+
+                # Total Trades
+                html.Div([
+                    html.H2(f"{results['total_trades']:,}"),
+                    html.P("Tranzakciók", style={'color': '#7f8c8d'}),
+                    html.Span("💼", style={'fontSize': 30})
+                ], style={
+                    'background': 'linear-gradient(135deg, #f39c12, #e67e22)',
+                    'color': 'white', 'padding': '20px', 'borderRadius': 15,
+                    'textAlign': 'center', 'margin': '10px', 'boxShadow': '0 4px 12px rgba(0,0,0,0.15)'
+                })
+            ], style={'display': 'flex', 'flexWrap': 'wrap', 'justifyContent': 'center'})
+
+            return cards
+
+        # 3. Daily Returns chart - TE 'daily_returns'
+        @self.app.callback(
+            Output('daily-returns-chart', 'figure'),
+            Input('interval-component', 'n_intervals')
         )
+        def update_daily_returns(n):
+            fig = go.Figure()
 
-        return fig
+            daily_returns = self.backtest_results['daily_returns']
+            dates = np.arange(len(daily_returns))
 
-    def create_metrics_display(self, metrics: Dict) -> html.Div:
-        """
-        Create metrics display
-        """
-        return html.Div([
-            html.Div([
-                html.P(f"Total Return: {metrics['total_return']*100:.2f}%"),
-                html.P(f"Sharpe Ratio: {metrics['sharpe_ratio']:.2f}"),
-                html.P(f"Max Drawdown: {metrics['max_drawdown']*100:.2f}%"),
-                html.P(f"Win Rate: {metrics['win_rate']*100:.2f}%"),
-                html.P(f"Total Trades: {metrics['total_trades']}")
-            ], style={'fontSize': 18, 'padding': '20px'})
-        ])
+            # Napi hozamok
+            fig.add_trace(go.Bar(
+                x=dates, y=daily_returns * 100,
+                name='Napi Hozam (%)',
+                marker_color=['green' if x >= 0 else 'red' for x in daily_returns * 100],
+                opacity=0.7
+            ))
 
-    def create_allocation_chart(self, positions: Dict):
-        """
-        Create pie chart for asset allocation
-        """
-        labels = list(positions.keys())
-        values = list(positions.values())
+            # Átlagvonal
+            fig.add_hline(
+                y=daily_returns.mean() * 100,
+                line_dash="dash", line_color="orange",
+                annotation_text=f"Átlag: {daily_returns.mean() * 100:.2f}%"
+            )
 
-        fig = go.Figure(data=[go.Pie(
-            labels=labels,
-            values=values,
-            hole=0.3
-        )])
+            fig.update_layout(
+                title="Napi Hozamok Eloszlása",
+                xaxis_title="Napok", yaxis_title="Hozam (%)",
+                template='plotly_white', height=400
+            )
 
-        fig.update_layout(template='plotly_dark')
+            return fig
 
-        return fig
-
-    def create_price_comparison_chart(self, data: pd.DataFrame, selected_assets: list):
-        """
-        Create price comparison chart for multiple assets
-        """
-        fig = go.Figure()
-
-        for asset in selected_assets:
-            # Find close price column for this asset
-            close_cols = [col for col in data.columns if asset in col and 'Close' in col]
-            if close_cols:
-                prices = data[close_cols[0]]
-
-                # Normalize to percentage change from start
-                normalized_prices = (prices / prices.iloc[0] - 1) * 100
-
-                fig.add_trace(go.Scatter(
-                    x=data.index,
-                    y=normalized_prices,
-                    mode='lines',
-                    name=asset
-                ))
-
-        fig.update_layout(
-            xaxis_title="Date",
-            yaxis_title="Price Change (%)",
-            hovermode='x unified',
-            template='plotly_dark'
+        # 4. Portfolio table - TE 'portfolio_values'
+        @self.app.callback(
+            Output('portfolio-table', 'data'),
+            Input('interval-component', 'n_intervals')
         )
+        def update_portfolio_table(n):
+            portfolio_values = self.backtest_results['portfolio_values']
+            daily_returns = self.backtest_results['daily_returns']
 
-        return fig
+            table_data = []
+            initial_value = portfolio_values[0]
 
-    def run(self, debug=False):
-        """
-        Run the dashboard server
-        """
-        self.app.run(
-            debug=debug,
-            port=self.config.DASHBOARD_PORT
-        )
+            for i in range(min(100, len(portfolio_values))):  # Első 100 nap
+                table_data.append({
+                    'step': i + 1,
+                    'value': portfolio_values[i],
+                    'daily_pct': daily_returns[i] if i < len(daily_returns) else 0
+                })
+
+            return table_data
+
+    def run(self, debug=False, port=8050):
+        """Dashboard indítás"""
+        print("🚀 AI Trading Dashboard indul: http://127.0.0.1:8050")
+        print(f"📊 Backtest eredmények: {len(self.backtest_results['portfolio_values'])} nap")
+        self.app.run(debug=debug, port=port, host='127.0.0.1')
+
+
+# Indítás script
+if __name__ == "__main__":
+    from config.settings import Config
+
+    config = Config()
+
+    # Dummy backtest eredmények (cseréld ki a valódi backtest_agent hívásra)
+    dummy_results = {
+        'total_return': 0.187,
+        'sharpe_ratio': 1.35,
+        'max_drawdown': -0.092,
+        'win_rate': 0.643,
+        'final_portfolio_value': 118700,
+        'total_trades': 124,
+        'portfolio_values': np.cumsum(np.random.normal(400, 2000, 252)) + 100000,
+        'daily_returns': pd.Series(np.random.normal(0.0008, 0.02, 252))
+    }
+
+    dashboard = TradingDashboard(config, backtest_results=dummy_results)
+    dashboard.run(debug=True)

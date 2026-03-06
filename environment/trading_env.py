@@ -119,9 +119,7 @@ class TradingEnvironment(gym.Env):
         return self._get_observation()
 
     def _get_observation(self) -> np.ndarray:
-        """
-        Get current state observation
-        """
+        """ Get current state observation """
         # ====================================================================
         # MÓDOSÍTÁS: Boundary check az end_step-hez képest
         # ====================================================================
@@ -151,9 +149,7 @@ class TradingEnvironment(gym.Env):
         return observation.astype(np.float32)
 
     def _get_asset_prices(self) -> np.ndarray:
-        """
-        Get current prices for all assets
-        """
+        """ Get current prices for all assets """
         prices = []
         for asset in self.assets:
             # Look for Close price column for this asset
