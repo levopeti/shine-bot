@@ -22,24 +22,24 @@ class Config:
             'AAPL',  # Apple
             'MSFT',  # Microsoft
             'IBM',  # IBM
-            'ORCL',  # Oracle
-            'GOOGL',  # Google
-            'TSLA',  # Tesla 2010-09-24
-            'NVDA',  # Nvidia
+            # 'ORCL',  # Oracle
+            # 'GOOGL',  # Google
+            # 'TSLA',  # Tesla 2010-09-24
+            # 'NVDA',  # Nvidia
 
             # Blue chips
-            'JPM',  # JP Morgan
-            'KO',  # Coca-Cola
-            'PG',  # Procter & Gamble
-            'JNJ',  # Johnson & Johnson
-            'WMT',  # Walmart
-            'XOM',  # Exxon Mobil
-            'CVX',  # Chevron
-
-            # ETF-ek
-            'SPY',  # S&P 500
-            'QQQ',  # Nasdaq 100
-            'IWM'  # Russell 2000
+            # 'JPM',  # JP Morgan
+            # 'KO',  # Coca-Cola
+            # 'PG',  # Procter & Gamble
+            # 'JNJ',  # Johnson & Johnson
+            # 'WMT',  # Walmart
+            # 'XOM',  # Exxon Mobil
+            # 'CVX',  # Chevron
+            #
+            # # ETF-ek
+            # 'SPY',  # S&P 500
+            # 'QQQ',  # Nasdaq 100
+            # 'IWM'  # Russell 2000
         ],
         'crypto': [
             # 'BTC-USD',  # 2014-11-05
@@ -49,37 +49,37 @@ class Config:
             # 'XRP-USD',  # 2017-12-28
         ],
         'commodities': [
-            'GC=F',  # Arany
-            'SI=F',  # Ezüst
-            'PL=F',  # Platina
-            'PA=F',  # Palládium
-
-            # Energia
-            'CL=F',  # WTI Olaj
-            'BZ=F',  # Brent Olaj
-            'NG=F',  # Földgáz
-
-            # Mezőgazdaság
-            'ZC=F',  # Kukorica
-            'ZS=F',  # Szója
-            'ZW=F',  # Búza
-            'KC=F',  # Kávé
-            'CC=F',  # Kakaó
+            # 'GC=F',  # Arany
+            # 'SI=F',  # Ezüst
+            # 'PL=F',  # Platina
+            # 'PA=F',  # Palládium
+            #
+            # # Energia
+            # 'CL=F',  # WTI Olaj
+            # 'BZ=F',  # Brent Olaj
+            # 'NG=F',  # Földgáz
+            #
+            # # Mezőgazdaság
+            # 'ZC=F',  # Kukorica
+            # 'ZS=F',  # Szója
+            # 'ZW=F',  # Búza
+            # 'KC=F',  # Kávé
+            # 'CC=F',  # Kakaó
         ],
         'forex': [
-            # Majors
-            'EUR/USD',
-            'GBP/USD',
-            'USD/JPY',
-            'USD/CHF',
-            'AUD/USD',
-            'USD/CAD',
-            'NZD/USD',
-
-            # Cross
-            'EUR/JPY',
-            'GBP/JPY',
-            'EUR/GBP'
+            # # Majors
+            # 'EUR/USD',
+            # 'GBP/USD',
+            # 'USD/JPY',
+            # 'USD/CHF',
+            # 'AUD/USD',
+            # 'USD/CAD',
+            # 'NZD/USD',
+            #
+            # # Cross
+            # 'EUR/JPY',
+            # 'GBP/JPY',
+            # 'EUR/GBP'
         ]
     }
 
