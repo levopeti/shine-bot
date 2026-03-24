@@ -112,6 +112,8 @@ class DeepLearningAgent:
         states, actions, rewards, next_states, dones = zip(*batch)
 
         # Convert to tensors
+        [print(len(x)) for x in states]
+        breakpoint()
         states = torch.FloatTensor(np.array(states)).to(self.device)
         actions = torch.FloatTensor(np.array(actions)).to(self.device)
         rewards = torch.FloatTensor(rewards).to(self.device)

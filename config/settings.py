@@ -1,7 +1,21 @@
 # config/settings.py
 
 import os
+from dataclasses import dataclass
 from datetime import datetime, timedelta
+
+@dataclass
+class GoldOptionConfig:
+    INITIAL_BALANCE: float = 100000
+    POSITION_SIZE: float = 0.1  # Fix 10% pot
+    MAX_OPEN_OPTIONS: int = 5  # MAX 5 OPció!
+    TRANSACTION_COST: float = 0.0005
+    EPISODE_LENGTH: int = 78  # M5, 1 nap
+    DEADZONE: float = 0.1  # -0.1 .. 0.1 = HOLD
+    STRIKE_DISTANCE: float = 0.02  # 2% strike
+    TP_DISTANCE: float = 0.015  # 1.5% TP
+    SL_DISTANCE: float = 0.01  # 1% SL
+    PREMIUM_PCT: float = 0.005  # 0.5% prémium
 
 
 class Config:
@@ -20,8 +34,8 @@ class Config:
         'stocks': [
             # Tech
             'AAPL',  # Apple
-            'MSFT',  # Microsoft
-            'IBM',  # IBM
+            # 'MSFT',  # Microsoft
+            # 'IBM',  # IBM
             # 'ORCL',  # Oracle
             # 'GOOGL',  # Google
             # 'TSLA',  # Tesla 2010-09-24

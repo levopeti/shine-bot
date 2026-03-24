@@ -5,23 +5,10 @@ import numpy as np
 import pandas as pd
 from gymnasium import spaces
 from typing import List, Dict
-from dataclasses import dataclass
 import yfinance as yf
 from datetime import datetime, timedelta
 
-
-@dataclass
-class GoldOptionConfig:
-    INITIAL_BALANCE: float = 100000
-    POSITION_SIZE: float = 0.1  # Fix 10% pot
-    MAX_OPEN_OPTIONS: int = 5  # MAX 5 OPció!
-    TRANSACTION_COST: float = 0.0005
-    EPISODE_LENGTH: int = 78  # M5, 1 nap
-    DEADZONE: float = 0.1  # -0.1 .. 0.1 = HOLD
-    STRIKE_DISTANCE: float = 0.02  # 2% strike
-    TP_DISTANCE: float = 0.015  # 1.5% TP
-    SL_DISTANCE: float = 0.01  # 1% SL
-    PREMIUM_PCT: float = 0.005  # 0.5% prémium
+from config.settings import GoldOptionConfig
 
 
 class GoldOptionsEnv(gym.Env):
@@ -32,14 +19,14 @@ class GoldOptionsEnv(gym.Env):
     - Automatikus SL/TP zárás
     """
 
-    def __init__(self, gold_data: pd.DataFrame, config: GoldOptionConfig):
+    def __init__(self, gold_data: pd.DataFrame):
         super().__init__()
         self.data = gold_data
-        self.config = config
+        self.config = GoldOptionConfig()
 
         # Portfolio + opciók
-        self.portfolio_value = config.INITIAL_BALANCE
-        self.initial_balance = config.INITIAL_BALANCE
+        self.portfolio_value = self.config.INITIAL_BALANCE
+        self.initial_balance = self.config.INITIAL_BALANCE
         self.open_options: List[Dict] = []
         self.current_step = 0
 
@@ -47,12 +34,12 @@ class GoldOptionsEnv(gym.Env):
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
 
         # State: price + indicators + 5 option states (15 feature)
-        self.state_dim = 20  # 5 price feat + 15 option feat
+        self.state_dim = 1 + 1 * 20  #???
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(self.state_dim,), dtype=np.float32
         )
 
-        self.max_steps = config.EPISODE_LENGTH
+        self.max_steps = self.config.EPISODE_LENGTH
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -63,7 +50,7 @@ class GoldOptionsEnv(gym.Env):
 
     def step(self, action: np.ndarray):
         action_value = action[0]  # [-1, 1]
-        current_price = self.data['Close'].iloc[self.current_step]
+        current_price = self._get_asset_prices()
         prev_portfolio = self.portfolio_value
 
         # DEAD ZONE: -0.1 .. 0.1 = HOLD
@@ -97,7 +84,7 @@ class GoldOptionsEnv(gym.Env):
             'current_price': current_price
         }
 
-        return self._get_observation(), reward, done, False, info
+        return self._get_observation(), reward, done, info
 
     def _open_option(self, current_price: float, direction: int):
         """Új arany opció nyitása"""
@@ -143,30 +130,23 @@ class GoldOptionsEnv(gym.Env):
                 i += 1
 
     def _get_observation(self) -> np.ndarray:
-        """State: price features + 5 option states"""
+        """State: price portfolio_value + market_state"""
         if self.current_step >= len(self.data):
-            price_data = self.data.iloc[-1]
+            market_state = self.data.iloc[-1].values
         else:
-            price_data = self.data.iloc[self.current_step]
+            market_state = self.data.iloc[self.current_step].values
 
-        current_price = price_data['Close']
-
-        # Price features (5)
-        price_features = np.array([
-            price_data['Close'] / 2000,  # Normalizált ár
-            self.current_step / self.max_steps
-        ])
-
-        # Option states: 5 slot × 3 feature (direction, dist_to_strike, time_left)
-        option_states = np.zeros(15)  # 5×3=15
-        for i, opt in enumerate(self.open_options[:5]):
-            dist_to_strike = (current_price - opt['strike_price']) / opt['strike_price']
-            time_left = max(0, self.config.EPISODE_LENGTH - (
-                        self.current_step - opt['open_step'])) / self.config.EPISODE_LENGTH
-            option_states[i * 3:i * 3 + 3] = [opt['direction'], dist_to_strike, time_left]
-
-        state = np.concatenate([price_features, option_states])
+        state = np.concatenate([[self.portfolio_value], market_state])
         return state.astype(np.float32)
+
+    def _get_asset_prices(self) -> np.ndarray:
+        """ Get current prices for all assets """
+
+        # Look for Close price column for this asset
+        close_col = [col for col in self.data.columns if 'Close' in col]
+        if close_col:
+            price = self.data.iloc[self.current_step][close_col[0]]
+            return price
 
     def _calculate_reward(self) -> float:
         """Reward = opciók P&L + portfolio"""

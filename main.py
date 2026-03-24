@@ -9,6 +9,7 @@ from datetime import datetime
 from config.settings import Config
 from data.data_fetcher import DataFetcher
 from data.data_processor import DataProcessor
+from environment.option_env import GoldOptionsEnv
 from environment.trading_env import TradingEnvironment
 
 # Import all agent types
@@ -65,7 +66,8 @@ def train_agent(config, agent_type='dl', num_episodes=100):
         logger.error("No data!")
         return None
 
-    env = TradingEnvironment(processed_data, config, mode='train')
+    # env = TradingEnvironment(processed_data, config, mode='train')
+    env = GoldOptionsEnv(processed_data)
     agent = create_agent(agent_type, env.observation_space.shape[0], env.action_space.shape[0], config)
 
     for episode in range(num_episodes):

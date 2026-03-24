@@ -145,7 +145,6 @@ class TradingEnvironment(gym.Env):
             positions_state,
             market_state
         ])
-
         return observation.astype(np.float32)
 
     def _get_asset_prices(self) -> np.ndarray:

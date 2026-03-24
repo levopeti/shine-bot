@@ -27,6 +27,8 @@ class DataProcessor:
         # Exponential Moving Averages
         df['EMA_12'] = df['Close'].ewm(span=12, adjust=False).mean()
         df['EMA_26'] = df['Close'].ewm(span=26, adjust=False).mean()
+        df['EMA_50'] = df['Close'].ewm(span=50, adjust=False).mean()
+        df['EMA_100'] = df['Close'].ewm(span=100, adjust=False).mean()
 
         # MACD
         df['MACD'] = df['EMA_12'] - df['EMA_26']
