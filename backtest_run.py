@@ -1,12 +1,10 @@
+import numpy as np
 from stable_baselines3 import DQN
 from backtesting import Backtest, Strategy
-import pandas as pd
-import numpy as np
+from torch.backends.mkl import verbose
 
 from main_swing import load_gold_m5, M5TradingEnv
 
-
-# ── 1. Modell futtatása test env-en, trade-ek összegyűjtése ──────────────────
 
 def collect_trades(model, env):
     obs, _ = env.reset()
@@ -39,9 +37,9 @@ def collect_trades(model, env):
                 "reward": reward
             })
 
-            if reward == 10.0:
+            if reward == 10_000 * tp_pct:
                 tp_hit += 1
-            elif reward == -10.0:
+            elif reward == -10_000 * sl_pct:
                 sl_hit += 1
             else:
                 timeout += 1
@@ -53,20 +51,22 @@ def collect_trades(model, env):
 
 
 if "__main__" == __name__:
-    df = load_gold_m5("/home/salusmo/projects/shine-bot/XAU_archive/XAU_5m_data.csv")
+    # import os
+    # os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
-    # Leválasztás év alapján
+    df = load_gold_m5("./XAU_5m_data.csv")
+
     test_start_year = 2025
-
     train_df = df[df["time"].dt.year < test_start_year].reset_index(drop=True)
     test_df = df[df["time"].dt.year >= test_start_year].reset_index(drop=True)
+    # test_df = df[df["time"].dt.year < test_start_year].reset_index(drop=True)
 
     print(f"Train: {train_df['time'].iloc[0].year} – {train_df['time'].iloc[-1].year} | {len(train_df):,} gyertya")
     print(f"Test:  {test_df['time'].iloc[0].year} – {test_df['time'].iloc[-1].year} | {len(test_df):,} gyertya")
 
     test_env = M5TradingEnv(test_df)
     # model = DQN.load("/home/salusmo/Downloads/m5_dqn_trader.zip")
-    model = DQN.load("/home/salusmo/Downloads/m5_dqn_trader_1m.zip")
+    model = DQN.load("./m5_dqn_trader_5M_cnn.zip")
 
     trades, rewards, stats = collect_trades(model, test_env)
 
@@ -97,35 +97,22 @@ if "__main__" == __name__:
 
     # trade_lookup: step → trade info
     trade_lookup = {t["step"]: t for t in trades}
-    # trade_lookup = {t["date"]: t for t in trades}
 
+
+    # trade_lookup = {t["date"]: t for t in trades}
 
     class DQNStrategy(Strategy):
         def init(self):
             pass
 
         def next(self):
-            current_step = len(self.data) - 1# + test_env.window
+            current_step = len(self.data) - 1  # + test_env.window
 
             if current_step not in trade_lookup:
                 return
 
-            # if self.data.index[-1] not in trade_lookup:
-            #     return
-
-            # trade = trade_lookup[self.data.index[-1]]
             trade = trade_lookup[current_step]
             entry = trade["entry"]
-            # breakpoint()
-
-            # if trade["direction"] == "buy":
-            #     tp = entry * (1 + trade["tp_pct"])
-            #     sl = entry * (1 - trade["sl_pct"])
-            #     self.buy(tp=tp, sl=sl)
-            # else:
-            #     tp = entry * (1 - trade["tp_pct"])
-            #     sl = entry * (1 + trade["sl_pct"])
-            #     self.sell(tp=tp, sl=sl)
 
             try:
                 if trade["direction"] == "buy":
@@ -142,11 +129,12 @@ if "__main__" == __name__:
                 print(trade)
                 print()
 
+
     # Futtatás
     bt_df = test_df[["time", "open", "high", "low", "close", "volume"]].copy()
     bt_df.columns = ["Date", "Open", "High", "Low", "Close", "Volume"]
     bt_df.set_index("Date", inplace=True)
-    bt = Backtest(bt_df, DQNStrategy, cash=10_000, commission=0.0002, margin=0.002, finalize_trades=True)
+    bt = Backtest(bt_df, DQNStrategy, cash=1_000, commission=0.0002, margin=0.002, finalize_trades=True)
     result = bt.run()
 
     # Releváns metrikák a result-ból
@@ -162,4 +150,13 @@ if "__main__" == __name__:
     print(f"Profit Factor:     {result['Profit Factor']:.3f}")
     print("=" * 45)
 
-    bt.plot()
+    # print("Nyereséges trade-ek:")
+    # print(result[result['PnL'] > 0][['EntryTime', 'PnL', 'PnL%']].round(4))
+    #
+    # # Csak veszteséges
+    # print("Veszteséges trade-ek:")
+    # print(result[result['PnL'] < 0][['EntryTime', 'PnL', 'PnL%']].round(4))
+
+    breakpoint()
+
+    # bt.plot()
