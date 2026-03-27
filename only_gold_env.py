@@ -1,6 +1,32 @@
+import random
+from time import time
+
 import gymnasium as gym
 import numpy as np
+from pprint import pprint
 from gymnasium import spaces
+
+from config import Config
+
+
+class ConfidentEnv(gym.Wrapper):
+    def __init__(self, env, model, threshold=0.3):
+        super().__init__(env)
+        self.model = model
+        self.threshold = threshold
+
+    def step(self, action):
+        obs = self.env._get_obs()
+
+        _, q_values = self.model.predict(obs, deterministic=True)
+        confidence = q_values.max() - q_values.mean()
+        print(confidence)
+        input()
+
+        if confidence < self.threshold:
+            action = 0  # Force HOLD
+
+        return self.env.step(action)
 
 
 class M5TradingEnv(gym.Env):
@@ -11,70 +37,93 @@ class M5TradingEnv(gym.Env):
     """
     metadata = {"render_modes": []}
 
-    TP_LEVELS = [0.003, 0.006, 0.010]  # 0.3%, 0.6%, 1.0%
-    SL_LEVELS = [0.001, 0.003, 0.006]  # 0.1%, 0.3%, 0.6%
-
-    def __init__(self, df, window_h=12, fwd_window=1):
+    def __init__(self, df, mode="train"):
         super().__init__()
         self.df = df.reset_index(drop=True)
-        self.window = window_h * 12  # 12 × M5 = 1 óra lookback
-        self.fwd_window = fwd_window * 12  # következő 1 óra = 12 × M5
+        self.window = Config.WINDOW_H * 12  # 12 × M5 = 1 óra lookback
+        self.fwd_window = Config.FWD_WINDOW
+        self.episode_steps = Config.TRAIN_EPISODE_STEPS
+        self.episode_indices = list()
+        self.current_step = 0
+        self.episode_count = 0
+        self.normalize = Config.NORMALIZE
+        self.mode = mode
 
-        n_combos = len(self.TP_LEVELS) * len(self.SL_LEVELS)  # 9
-        self.action_space = spaces.Discrete(1 + 2 * n_combos)  # 19
+        self.TP_SL_RATIO = Config.TP_SL_RATIO
+        self.SL_LEVELS = Config.SL_LEVELS
 
-        self.obs_dim = self.window * 6 + 1  # 72 + 1 = 73
+        n_combos = len(self.TP_SL_RATIO) * len(self.SL_LEVELS)
+        self.action_space = spaces.Discrete(1 + 2 * n_combos)
+
+        self.obs_dim = self.window * 6
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(self.obs_dim,), dtype=np.float32
         )
         self._build_action_map()
-
-        self.episode_stats = {"tp": 0, "sl": 0, "timeout": 0, "holds": 0}
+        self.episode_stats = dict()
 
     def _build_action_map(self):
-        """0=Hold; 1-9=Buy; 10-18=Sell"""
+        """0=Hold; 1-12=Buy; 13-24=Sell"""
         self.action_map = {0: ("hold", 0, 0)}
         idx = 1
-        for tp in self.TP_LEVELS:
+        for tp_sl in self.TP_SL_RATIO:
             for sl in self.SL_LEVELS:
-                self.action_map[idx] = ("buy", tp, sl)
-                self.action_map[idx + 9] = ("sell", tp, sl)
+                self.action_map[idx] = ("buy", tp_sl, sl)
                 idx += 1
+                self.action_map[idx] = ("sell", tp_sl, sl)
+                idx += 1
+        assert len(self.action_map) == 2 * len(self.TP_SL_RATIO) * len(self.SL_LEVELS) + 1
 
     def _get_obs(self):
-        window_data = self.df.iloc[self.current_step - self.window: self.current_step]
+        # TODO: current price
+        idx = self.episode_indices[self.current_step]
+        window_data = self.df.iloc[idx - self.window:idx]
+
+        if self.normalize:
+            window_data[["open", "close", "high", "low"]] -= window_data[["open", "close", "high", "low"]].iloc[0]
+
         # "open", "close", "high", "low", "volume", "rsi", "open", "close", "high", "low", "volume", "rsi", ...
-        features = window_data[["open", "close", "high", "low", "volume", "rsi"]].values.flatten()
-        current_open = np.array([self.df.loc[self.current_step, "open"]])
-        obs = np.concatenate([features, current_open]).astype(np.float32)
-        # Egyszerű normalizálás: price feature-öket osszuk az első open-nel
-        # ref = features[0] if features[0] != 0 else 1.0
-        # obs[:self.window * 6] /= ref
-        # obs[-1] /= ref
+        obs = window_data[["open", "close", "high", "low", "volume", "rsi"]].values.flatten().astype(np.float32)
         return obs
 
     def reset(self, seed=None, options=None):
-        self.episode_stats = {"tp": 0, "sl": 0, "timeout": 0, "holds": 0}
+        if len(self.episode_stats) > 0 and self.episode_stats["wr"] != 0:
+            print(self.mode, self.episode_stats)
+
+        self.episode_stats = {"tp": 0, "sl": 0, "timeout": 0, "holds": 0, "undefined": 0, "pl": 0, "wr": 0}
         super().reset(seed=seed)
-        self.current_step = self.window
+        if self.mode == "train":
+            self.episode_indices = random.sample(range(self.window, len(self.df)), self.episode_steps)
+        else:
+            self.episode_indices = range(self.window, len(self.df))
+
+        self.current_step = 0
+        self.episode_count += 1
         return self._get_obs(), {"episode_stats": self.episode_stats}
 
     def step(self, action):
-        direction, tp_pct, sl_pct = self.action_map[action]
-        entry_price = self.df.loc[self.current_step, "open"]
+        direction, tp_sl, sl = self.action_map[action]
+        idx = self.episode_indices[self.current_step]
+        entry_price = self.df.loc[idx, "open"]
 
         reward = 0.0
 
         if direction != "hold":
-            tp_price = entry_price * (1 + tp_pct) if direction == "buy" else entry_price * (1 - tp_pct)
-            sl_price = entry_price * (1 - sl_pct) if direction == "buy" else entry_price * (1 + sl_pct)
+            # tp_price = entry_price * (1 + tp_pct) if direction == "buy" else entry_price * (1 - tp_pct)
+            # sl_price = entry_price * (1 - sl_pct) if direction == "buy" else entry_price * (1 + sl_pct)
 
-            end_idx = min(self.current_step + self.fwd_window, len(self.df) - 1)
-            fwd = self.df.iloc[self.current_step + 1: end_idx + 1]
+            tp = sl * tp_sl
+            tp_price = entry_price + tp if direction == "buy" else entry_price - tp
+            sl_price = entry_price - sl if direction == "buy" else entry_price + sl
 
-            hit_tp = hit_sl = False
+            # end_idx = min(self.current_step + self.fwd_window, len(self.df) - 1)
+            fwd = self.df.iloc[idx + 1:idx + self.fwd_window]
+            hit_tp = hit_sl = undefined = False
             for _, candle in fwd.iterrows():
                 if direction == "buy":
+                    if candle["high"] >= tp_price and candle["low"] <= sl_price:
+                        undefined = True
+                        break
                     if candle["low"] <= sl_price:
                         hit_sl = True
                         break
@@ -82,31 +131,43 @@ class M5TradingEnv(gym.Env):
                         hit_tp = True
                         break
                 else:  # sell
+                    if candle["high"] >= sl_price and candle["low"] <= tp_price:
+                        undefined = True
+                        break
                     if candle["high"] >= sl_price:
                         hit_sl = True
                         break
                     if candle["low"] <= tp_price:
                         hit_tp = True
                         break
-
             if hit_tp:
-                reward = 10_000 * tp_pct
+                reward = tp / (max(self.SL_LEVELS) * max(self.TP_SL_RATIO))
+                self.episode_stats["pl"] += tp
                 self.episode_stats["tp"] += 1
             elif hit_sl:
-                reward = -10_000 * sl_pct
+                reward = -sl / max(self.SL_LEVELS)
+                self.episode_stats["pl"] -= sl
                 self.episode_stats["sl"] += 1
+            elif undefined:
+                self.episode_stats["undefined"] += 1
             else:
-                reward = -3.0  # timeout
                 self.episode_stats["timeout"] += 1
+                # print(fwd)
+                # print("tp: {}, sl: {}".format(tp, sl))
+                # print("{}, entry_price: {}, tp_price: {}, sl_price: {}".format(direction, entry_price, tp_price,
+                #                                                                sl_price))
+                # input()
         else:
             self.episode_stats["holds"] += 1
-
         self.current_step += 1
-        truncated = self.current_step >= len(self.df) - self.fwd_window - 1
+        truncated = self.current_step >= len(self.episode_indices)
         terminated = truncated
 
         obs = self._get_obs() if not terminated else np.zeros(self.obs_dim, dtype=np.float32)
+        total_trades = self.episode_stats["tp"] + self.episode_stats["sl"] + self.episode_stats["timeout"] + self.episode_stats["undefined"]
+        self.episode_stats["wr"] = self.episode_stats["tp"] / max(total_trades, 1)
         info = dict()
         info["episode_stats"] = self.episode_stats.copy()
         info["date"] = self.df.loc[self.current_step, "time"]
+        info["episode_count"] = self.episode_count
         return obs, reward, terminated, truncated, info

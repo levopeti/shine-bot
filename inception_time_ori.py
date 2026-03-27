@@ -1,7 +1,5 @@
 import torch
-from gymnasium import spaces
 from torch.nn import Module, Conv1d, MaxPool1d, BatchNorm1d, ReLU, Sequential, AdaptiveAvgPool1d, Linear
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 
 
 class InceptionModule(Module):
@@ -78,28 +76,16 @@ class InceptionModule(Module):
         return Z
 
 
-class InceptionTime(BaseFeaturesExtractor):
-    """
-    original parameters:
-        n_filters: int = 32,
-        kernel_sizes: tuple = (9, 19, 39),
-        bottleneck_channels: int = 32,
-        use_residual: bool = True,
-    """
+class InceptionTime(Module):
     def __init__(self,
-                 observation_space: spaces.Box,
-                 features_dim: int,
                  in_channels: int,
+                 out_size: int,
                  n_filters: int = 32,
-                 window_h: int = 12,
                  kernel_sizes: tuple = (9, 19, 39),
                  bottleneck_channels: int = 32,
                  use_residual: bool = True,
                  activation: Module = ReLU()):
-        super().__init__(observation_space, features_dim)
-        self.n_features = in_channels
-        self.window = window_h * 12
-
+        super().__init__()
         self.use_residual = use_residual
         self.activation = activation
         self.inception_1 = InceptionModule(in_channels=in_channels,
@@ -125,18 +111,9 @@ class InceptionTime(BaseFeaturesExtractor):
                                               padding=0),
                                        BatchNorm1d(num_features=4 * n_filters))
         self.global_avg_pool = AdaptiveAvgPool1d(1)
-        self.linear = Linear(4 * n_filters, features_dim)
+        self.linear = Linear(4 * n_filters, out_size)
 
-    def _reshape_input(self, obs: torch.Tensor) -> torch.Tensor:
-        # obs shape: (batch, length)
-        batch_size = obs.shape[0]
-        x = obs.view(batch_size, self.window, self.n_features)
-        x = x.permute(0, 2, 1)
-        # (batch, channels=6, length)
-        return x
-
-    def forward(self, observations: torch.Tensor):
-        x = self._reshape_input(observations)
+    def forward(self, x):
         z = self.inception_1(x)
         z = self.inception_2(z)
         z = self.inception_3(z)
@@ -144,6 +121,6 @@ class InceptionTime(BaseFeaturesExtractor):
             z = z + self.residual(x)
             z = self.activation(z)
         z = self.global_avg_pool(z)
-        z = torch.squeeze(z, 2)
+        z = torch.squeeze(z)
         z = self.linear(z)
         return z
