@@ -1,8 +1,21 @@
 import pandas as pd
-from matplotlib import pyplot as plt
 import matplotlib.colors as mcolors
+from matplotlib import pyplot as plt
+from data_utils import rsi, create_features
+import talib as ta
 
-df = pd.read_csv("./XAU_5m_data_labels_24_6_3.csv")[:100000]
+
+df = pd.read_csv("./XAU_5m_data_labels_24_6_3.csv")#[:100000]
+df["time"] = pd.to_datetime(df["time"])
+df = df.set_index('time')
+df.index = pd.DatetimeIndex(df.index)
+df = create_features(df)
+# print(len(df), df.isna().sum())
+print(df.index.diff().value_counts().sort_values())
+df.dropna(inplace=True)
+print(df.index.diff().value_counts().sort_values())
+exit()
+
 df["time"] = pd.to_datetime(df["time"])
 
 color_map = {

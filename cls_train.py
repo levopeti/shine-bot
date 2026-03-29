@@ -19,6 +19,7 @@ from torch.utils.data import DataLoader, Dataset
 from torchmetrics import F1Score, Accuracy
 from torchsampler import ImbalancedDatasetSampler
 
+from data_utils import create_features
 from inception_time_ori import InceptionTime
 from lit_model import LitModel
 
@@ -29,9 +30,9 @@ torch.serialization.add_safe_globals([CrossEntropyLoss])
 class XAU5M(Dataset):
     def __init__(self, window_h=24, mode="train"):
         super().__init__()
-        self.n_features = 6
+
         self.window = window_h * 12
-        self.normalize = True
+        self.normalize = False
         df = pd.read_csv("./XAU_5m_data_labels_24_6_3.csv")
 
         df["time"] = pd.to_datetime(df["time"])
@@ -46,6 +47,19 @@ class XAU5M(Dataset):
             self.df = df[df["time"] >= from_test].reset_index(drop=True)
             print(f"Test:  {self.df['time'].iloc[0]} – {self.df['time'].iloc[-1]} | {len(self.df):,}")
 
+        self.features = [
+            'log_ret', 'vol_20',
+            'close_over_ma', 'body_ratio',
+            'rsi_14', 'rsi_7',
+            'macd', 'macd_sig',
+            'atr_14', 'bb_z',
+            'donch_high_ratio', 'donch_low_ratio',
+            # 'ma_15m_20'  # multi‑tf feature
+        ]
+        self.n_features = len(self.features)
+
+        self.df = create_features(self.df)
+        self.df.dropna(inplace=True)
 
         self.indices = list(range(self.window, len(self.df)))
         print(mode, " len of indices:", len(self.indices))
@@ -67,7 +81,7 @@ class XAU5M(Dataset):
             window_data[["open", "close", "high", "low"]] -= window_data[["open", "close", "high", "low"]].iloc[0]
 
         # "open", "close", "high", "low", "volume", "rsi", "open", "close", "high", "low", "volume", "rsi", ...
-        obs = window_data[["open", "close", "high", "low", "volume", "rsi"]].values.flatten().astype(np.float32)
+        obs = window_data[self.features].values.flatten().astype(np.float32)
         obs = obs.reshape(self.window, self.n_features).transpose(1, 0)
         label = self.label_map[self.df.iloc[current_idx]["label"]]
         return obs, label
@@ -132,7 +146,7 @@ def train(params: dict):
 
     early_stop_callback = EarlyStopping(monitor="val_f1", min_delta=0.0005, patience=params["patience"], mode="max")
     checkpoint_callback = ModelCheckpoint(dirpath=params["model_base_path"], save_top_k=1, monitor="val_f1", mode="max")
-    model = InceptionTime(in_channels=6, out_size=3)
+    model = InceptionTime(in_channels=train_dataset.n_features, out_size=3)
 
     if params["model_checkpoint_folder_path"] is not None:
         ckpt_path = sorted(glob(os.path.join(params["model_checkpoint_folder_path"], "*.ckpt")))[-1]
