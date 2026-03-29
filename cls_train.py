@@ -146,7 +146,7 @@ def train(params: dict):
 
     early_stop_callback = EarlyStopping(monitor="val_f1", min_delta=0.0005, patience=params["patience"], mode="max")
     checkpoint_callback = ModelCheckpoint(dirpath=params["model_base_path"], save_top_k=1, monitor="val_f1", mode="max")
-    model = InceptionTime(in_channels=train_dataset.n_features, out_size=3)
+    model = InceptionTime(in_channels=train_dataset.n_features, out_size=3, kernel_sizes=params["kernel_sizes"])
 
     if params["model_checkpoint_folder_path"] is not None:
         ckpt_path = sorted(glob(os.path.join(params["model_checkpoint_folder_path"], "*.ckpt")))[-1]
@@ -184,6 +184,7 @@ if __name__ == "__main__":
         "model_base_path": Path("./models") / datetime.now().strftime('%Y-%m-%d-%H-%M'),
         "model_checkpoint_folder_path": None,
         "num_epoch": 1000,
+        "kernel_sizes": (3, 9, 17),
         "learning_rate": 0.0001,
         "train_batch_size": 64,
         "val_batch_size": 256,
