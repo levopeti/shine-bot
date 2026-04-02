@@ -16,7 +16,7 @@ from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from torch.nn import CrossEntropyLoss
 from torch.utils.data import DataLoader, Dataset
-from torchmetrics import F1Score, Accuracy
+from torchmetrics import F1Score, Accuracy, Metric
 from torchsampler import ImbalancedDatasetSampler
 
 from data_utils import create_features
@@ -25,6 +25,26 @@ from lit_model import LitModel
 
 torch.multiprocessing.set_start_method('spawn', force=True)
 torch.serialization.add_safe_globals([CrossEntropyLoss])
+
+
+class WinRate(Metric):
+    name = "win_rate"
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Add state variables with reduction functions for distributed settings
+        self.add_state("correct", default=torch.tensor(0), dist_reduce_fx="sum")
+        self.add_state("total", default=torch.tensor(0), dist_reduce_fx="sum")
+
+    def update(self, preds: torch.Tensor, target: torch.Tensor) -> None:
+        total = (preds.argmax(1) == 0).sum() + (preds.argmax(1) == 1).sum()
+        buy_ok = torch.logical_and(preds.argmax(1) == 0, target == 0).sum()
+        sell_ok = torch.logical_and(preds.argmax(1) == 1, target == 1).sum()
+
+        self.correct += sell_ok + buy_ok
+        self.total += total
+
+    def compute(self) -> torch.Tensor:
+        return self.correct.float() / self.total
 
 
 class XAU5M(Dataset):
@@ -139,6 +159,8 @@ def train(params: dict):
     f1 = F1Score(task="multiclass", num_classes=3, average='macro').to(torch.device(params["device"]))
     f1.name = "f1"
     metric_list.append(f1)
+    wr = WinRate().to(torch.device(params["device"]))
+    metric_list.append(wr)
 
     xe = CrossEntropyLoss()  # weight=normed_weights
     xe.name = "xe_loss"
@@ -184,15 +206,15 @@ if __name__ == "__main__":
         "model_base_path": Path("./models") / datetime.now().strftime('%Y-%m-%d-%H-%M'),
         "model_checkpoint_folder_path": None,
         "num_epoch": 1000,
-        "kernel_sizes": (3, 9, 17),
+        "kernel_sizes": (3, 5, 7),
         "learning_rate": 0.0001,
-        "train_batch_size": 64,
+        "train_batch_size": 128,
         "val_batch_size": 256,
         "wd": 0.001,
-        "patience": 15,
+        "patience": 150,
         "num_workers": 8,
         "device": "cuda:0",
 
-        "window_h": 24
+        "window_h": 6
     }
     train(param_dict)
