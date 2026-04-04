@@ -37,7 +37,7 @@ class M5TradingEnv(gym.Env):
     """
     metadata = {"render_modes": []}
 
-    def __init__(self, df, mode="train"):
+    def __init__(self, df, features, mode="train"):
         super().__init__()
         self.df = df.reset_index(drop=True)
         self.window = Config.WINDOW_H * 12  # 12 × M5 = 1 óra lookback
@@ -47,7 +47,12 @@ class M5TradingEnv(gym.Env):
         self.current_step = 0
         self.episode_count = 0
         self.normalize = Config.NORMALIZE
+        self.random_indices = Config.RANDOM_INDICES
         self.mode = mode
+        self.features = features
+
+        self.equity = 10_000.0
+        self.max_equity = 10_000.0
 
         self.TP_SL_RATIO = Config.TP_SL_RATIO
         self.SL_LEVELS = Config.SL_LEVELS
@@ -55,10 +60,8 @@ class M5TradingEnv(gym.Env):
         n_combos = len(self.TP_SL_RATIO) * len(self.SL_LEVELS)
         self.action_space = spaces.Discrete(1 + 2 * n_combos)
 
-        self.obs_dim = self.window * 6
-        self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(self.obs_dim,), dtype=np.float32
-        )
+        self.obs_dim = self.window * len(self.features)
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(self.obs_dim,), dtype=np.float32)
         self._build_action_map()
         self.episode_stats = dict()
 
@@ -83,7 +86,9 @@ class M5TradingEnv(gym.Env):
             window_data[["open", "close", "high", "low"]] -= window_data[["open", "close", "high", "low"]].iloc[0]
 
         # "open", "close", "high", "low", "volume", "rsi", "open", "close", "high", "low", "volume", "rsi", ...
-        obs = window_data[["open", "close", "high", "low", "volume", "rsi"]].values.flatten().astype(np.float32)
+        # obs = window_data[["open", "close", "high", "low", "volume", "rsi"]].values.flatten().astype(np.float32)
+        obs = window_data[self.features].values.flatten().astype(np.float32)
+        # obs = obs.reshape(self.window, len(self.features))
         return obs
 
     def reset(self, seed=None, options=None):
@@ -92,13 +97,15 @@ class M5TradingEnv(gym.Env):
 
         self.episode_stats = {"tp": 0, "sl": 0, "timeout": 0, "holds": 0, "undefined": 0, "pl": 0, "wr": 0}
         super().reset(seed=seed)
-        if self.mode == "train":
+        if self.mode == "train" and self.random_indices:
             self.episode_indices = random.sample(range(self.window, len(self.df)), self.episode_steps)
         else:
             self.episode_indices = range(self.window, len(self.df))
 
         self.current_step = 0
         self.episode_count += 1
+        self.equity = 10_000.0
+        self.max_equity = 10_000.0
         return self._get_obs(), {"episode_stats": self.episode_stats}
 
     def step(self, action):
@@ -140,18 +147,28 @@ class M5TradingEnv(gym.Env):
                     if candle["low"] <= tp_price:
                         hit_tp = True
                         break
+
+            self.max_equity = max(self.max_equity, self.equity)
             if hit_tp:
-                reward = tp / (max(self.SL_LEVELS) * max(self.TP_SL_RATIO))
+                pnl = tp
+                self.equity += tp
                 self.episode_stats["pl"] += tp
                 self.episode_stats["tp"] += 1
             elif hit_sl:
-                reward = -sl / max(self.SL_LEVELS)
+                pnl = -sl
+                self.equity -= sl
                 self.episode_stats["pl"] -= sl
                 self.episode_stats["sl"] += 1
             elif undefined:
+                pnl = 0
                 self.episode_stats["undefined"] += 1
             else:
+                pnl = 0
                 self.episode_stats["timeout"] += 1
+
+            drawdown = self.max_equity - self.equity
+            reward = pnl - 0.5 * drawdown
+
                 # print(fwd)
                 # print("tp: {}, sl: {}".format(tp, sl))
                 # print("{}, entry_price: {}, tp_price: {}, sl_price: {}".format(direction, entry_price, tp_price,
@@ -159,6 +176,7 @@ class M5TradingEnv(gym.Env):
                 # input()
         else:
             self.episode_stats["holds"] += 1
+
         self.current_step += 1
         truncated = self.current_step >= len(self.episode_indices)
         terminated = truncated

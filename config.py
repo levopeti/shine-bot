@@ -9,11 +9,12 @@ class Config:
 
     # ENV TODO: lot multiplier
     TRAIN_EPISODE_STEPS = 10_000
-    WINDOW_H = 24
+    WINDOW_H = 48
     FWD_WINDOW = 5001
-    TP_SL_RATIO = [1.5] #  [1.5, 2, 3]
-    SL_LEVELS = [5] #  [3, 4, 5, 8]
-    NORMALIZE = True
+    TP_SL_RATIO = [1.5, 2, 3] #  [1.5, 2, 3], [2]
+    SL_LEVELS = [3, 4, 5, 8] #  [3, 4, 5, 8], [10]
+    NORMALIZE = False
+    RANDOM_INDICES = True
 
     # MODEL
     NET_ARCH = [128]

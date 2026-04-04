@@ -2,11 +2,11 @@ from pprint import pprint
 import warnings
 from tqdm import tqdm
 from datetime import datetime
-from stable_baselines3 import DQN
+from stable_baselines3 import DQN, PPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback, CallbackList
 
 from conv1d import Conv1DFeaturesExtractor
-from data_utils import load_gold_m5
+from data_utils import load_gold_m5, create_features
 from inception_time import InceptionTime
 from only_gold_env import M5TradingEnv, ConfidentEnv
 from config import Config
@@ -63,17 +63,40 @@ if __name__ == "__main__":
     Config.save_json(Config.MODEL_DIR / "config.json")
     pprint(Config.to_dict())
 
+    from_train = datetime(2008, 9, 12)
     from_test = datetime(2024, 9, 12)
     from_drop = datetime(2025, 9, 13)
+
     df = df.loc[df["time"] < from_drop]
+
     train_df = df[df["time"] < from_test].reset_index(drop=True)
+    train_df = train_df[train_df["time"] > from_train].reset_index(drop=True)
+
     test_df = df[df["time"] >= from_test].reset_index(drop=True)
+
+    train_df = create_features(train_df)
+    train_df.dropna(inplace=True)
+
+    test_df = create_features(test_df)
+    test_df.dropna(inplace=True)
 
     print(f"Train: {train_df['time'].iloc[0]} – {train_df['time'].iloc[-1]} | {len(train_df):,}")
     print(f"Test:  {test_df['time'].iloc[0]} – {test_df['time'].iloc[-1]} | {len(test_df):,}")
 
-    train_env = M5TradingEnv(train_df)
-    test_env = M5TradingEnv(test_df, mode="val")
+    features = [
+        'open', 'high', 'low', 'close', 'volume',
+        'log_ret', 'vol_20',
+        'close_over_ma', 'body_ratio',
+        'rsi_14', 'rsi_7',
+        'macd', 'macd_sig',
+        'atr_14', 'bb_z',
+        'donch_high_ratio', 'donch_low_ratio',
+        # 'ma_15m_20'  # multi‑tf feature
+    ]
+
+    train_env = M5TradingEnv(train_df, features)
+    test_env = M5TradingEnv(test_df, features, mode="val")
+
 
     mlp_policy_kwargs = dict(net_arch=[1024, 512, 128])
     cnn_policy_kwargs = dict(
@@ -83,27 +106,29 @@ if __name__ == "__main__":
     )
     inception_policy_kwargs = dict(
         features_extractor_class=InceptionTime,
-        features_extractor_kwargs=dict(features_dim=256, in_channels=6, window_h=Config.WINDOW_H),
+        features_extractor_kwargs=dict(features_dim=256, in_channels=len(features), window_h=Config.WINDOW_H),
         net_arch=Config.NET_ARCH  # MLP
     )
 
-    model = DQN(
+    model = PPO(
         "MlpPolicy", train_env,
         learning_rate=Config.LR,
-        buffer_size=Config.BUFFER_SIZE,
+        # buffer_size=Config.BUFFER_SIZE,
         batch_size=Config.BATCH_SIZE,
         gamma=Config.GAMMA,
-        exploration_fraction=Config.EXPLR_FRACTION,
-        exploration_final_eps=Config.EXPLR_FINAL_EPS,
-        train_freq=Config.TRAIN_FREQ,
-        target_update_interval=Config.T_U_I,
+        # exploration_fraction=Config.EXPLR_FRACTION,
+        # exploration_final_eps=Config.EXPLR_FINAL_EPS,
+        # train_freq=Config.TRAIN_FREQ,
+        # target_update_interval=Config.T_U_I,
         verbose=1,
         policy_kwargs=inception_policy_kwargs,
-        tensorboard_log=Config.MODEL_DIR / "tensorboard_logs/"
+        tensorboard_log=Config.MODEL_DIR / "tensorboard_logs/",
+        device="cuda"
     )
-    # policy = model.policy
+    policy = model.policy
     # print(policy.features_extractor)
     # print(policy.q_net)
+    # exit()
 
     # confident_env = ConfidentEnv(train_env, model)
     # model.set_env(confident_env)
