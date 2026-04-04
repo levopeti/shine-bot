@@ -97,8 +97,11 @@ class M5TradingEnv(gym.Env):
 
         self.episode_stats = {"tp": 0, "sl": 0, "timeout": 0, "holds": 0, "undefined": 0, "pl": 0, "wr": 0}
         super().reset(seed=seed)
-        if self.mode == "train" and self.random_indices:
-            self.episode_indices = random.sample(range(self.window, len(self.df)), self.episode_steps)
+        if self.mode == "train":
+            if self.random_indices:
+                self.episode_indices = random.sample(range(self.window, len(self.df)), self.episode_steps)
+            else:
+                self.episode_indices = range(self.window, self.episode_steps)
         else:
             self.episode_indices = range(self.window, len(self.df))
 
