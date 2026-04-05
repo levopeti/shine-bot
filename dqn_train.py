@@ -120,7 +120,7 @@ if __name__ == "__main__":
         # exploration_final_eps=Config.EXPLR_FINAL_EPS,
         # train_freq=Config.TRAIN_FREQ,
         # target_update_interval=Config.T_U_I,
-        verbose=1,
+        verbose=0,
         policy_kwargs=inception_policy_kwargs,
         tensorboard_log=Config.MODEL_DIR / "tensorboard_logs/",
         device="cuda"
