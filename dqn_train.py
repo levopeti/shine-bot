@@ -77,7 +77,7 @@ if __name__ == "__main__":
     train_df = create_features(train_df)
     train_df.dropna(inplace=True)
 
-    test_df = create_features(test_df)[:10000]
+    test_df = create_features(test_df)
     test_df.dropna(inplace=True)
 
     print(f"Train: {train_df['time'].iloc[0]} – {train_df['time'].iloc[-1]} | {len(train_df):,}")
