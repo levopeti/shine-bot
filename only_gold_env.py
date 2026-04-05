@@ -45,6 +45,7 @@ class M5TradingEnv(gym.Env):
         self.episode_steps = Config.TRAIN_EPISODE_STEPS
         self.episode_indices = list()
         self.current_step = 0
+        self.global_step = 0
         self.episode_count = 0
         self.normalize = Config.NORMALIZE
         self.random_indices = Config.RANDOM_INDICES
@@ -53,9 +54,11 @@ class M5TradingEnv(gym.Env):
 
         self.equity = 10_000.0
         self.max_equity = 10_000.0
+        self.max_drawdown = 1
 
         self.TP_SL_RATIO = Config.TP_SL_RATIO
         self.SL_LEVELS = Config.SL_LEVELS
+        self.max_tp = max(self.SL_LEVELS) * max(self.TP_SL_RATIO)
 
         n_combos = len(self.TP_SL_RATIO) * len(self.SL_LEVELS)
         self.action_space = spaces.Discrete(1 + 2 * n_combos)
@@ -97,11 +100,18 @@ class M5TradingEnv(gym.Env):
 
         self.episode_stats = {"tp": 0, "sl": 0, "timeout": 0, "holds": 0, "undefined": 0, "pl": 0, "wr": 0}
         super().reset(seed=seed)
+
+        if len(self.episode_indices) > 0 and self.episode_indices[-1] == len(self.df) - 1:
+            self.global_step = 0
+
         if self.mode == "train":
             if self.random_indices:
                 self.episode_indices = random.sample(range(self.window, len(self.df)), self.episode_steps)
             else:
-                self.episode_indices = range(self.window, self.episode_steps)
+                start_idx = self.window + self.global_step
+                end_idx = min(start_idx + self.episode_steps, len(self.df))
+                self.episode_indices = range(start_idx, end_idx)
+                print("{}, start idx: {}, end idx: {}".format(self. mode, min(self.episode_indices), max(self.episode_indices)))
         else:
             self.episode_indices = range(self.window, len(self.df))
 
@@ -109,6 +119,7 @@ class M5TradingEnv(gym.Env):
         self.episode_count += 1
         self.equity = 10_000.0
         self.max_equity = 10_000.0
+        self.max_drawdown = 1
         return self._get_obs(), {"episode_stats": self.episode_stats}
 
     def step(self, action):
@@ -151,7 +162,6 @@ class M5TradingEnv(gym.Env):
                         hit_tp = True
                         break
 
-            self.max_equity = max(self.max_equity, self.equity)
             if hit_tp:
                 pnl = tp
                 self.equity += tp
@@ -169,8 +179,13 @@ class M5TradingEnv(gym.Env):
                 pnl = 0
                 self.episode_stats["timeout"] += 1
 
+            self.max_equity = max(self.max_equity, self.equity)
             drawdown = self.max_equity - self.equity
-            reward = pnl - 0.5 * drawdown
+            self.max_drawdown = max(drawdown, self.max_drawdown)
+            drawdown = (drawdown / self.max_drawdown) * self.max_tp * 0.2
+            reward = pnl - drawdown
+            # print(pnl, -drawdown, reward)
+            # breakpoint()
 
                 # print(fwd)
                 # print("tp: {}, sl: {}".format(tp, sl))
@@ -181,6 +196,7 @@ class M5TradingEnv(gym.Env):
             self.episode_stats["holds"] += 1
 
         self.current_step += 1
+        self.global_step += 1
         truncated = self.current_step >= len(self.episode_indices)
         terminated = truncated
 

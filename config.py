@@ -28,7 +28,7 @@ class Config:
     T_U_I = 1000
     TOTAL_STEPS = 5_000_000
 
-    EVAL_FREQ = 200_000
+    EVAL_FREQ = 100_000
 
     @classmethod
     def to_dict(cls) -> dict:
