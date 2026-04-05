@@ -95,7 +95,7 @@ class M5TradingEnv(gym.Env):
         return obs
 
     def reset(self, seed=None, options=None):
-        if len(self.episode_stats) > 0 and self.episode_stats["wr"] != 0:
+        if len(self.episode_stats) > 0:
             print(self.mode, self.episode_stats)
 
         self.episode_stats = {"tp": 0, "sl": 0, "timeout": 0, "holds": 0, "undefined": 0, "pl": 0, "wr": 0}
@@ -183,7 +183,7 @@ class M5TradingEnv(gym.Env):
             drawdown = self.max_equity - self.equity
             self.max_drawdown = max(drawdown, self.max_drawdown)
             drawdown = (drawdown / self.max_drawdown) * self.max_tp * 0.2
-            reward = pnl - drawdown
+            reward = pnl # - drawdown
             # print(pnl, -drawdown, reward)
             # breakpoint()
 
