@@ -1,3 +1,4 @@
+import json
 import random
 from time import time
 
@@ -40,6 +41,7 @@ class M5TradingEnv(gym.Env):
     def __init__(self, df, features, mode="train"):
         super().__init__()
         self.df = df.reset_index(drop=True)
+        self.log_file = Config.EVAL_LOG_FILE
         self.window = Config.WINDOW_H * 12  # 12 × M5 = 1 óra lookback
         self.fwd_window = Config.FWD_WINDOW
         self.episode_steps = Config.TRAIN_EPISODE_STEPS
@@ -95,9 +97,6 @@ class M5TradingEnv(gym.Env):
         return obs
 
     def reset(self, seed=None, options=None):
-        if len(self.episode_stats) > 0:
-            print(self.mode, self.episode_stats)
-
         self.episode_stats = {"tp": 0, "sl": 0, "timeout": 0, "holds": 0, "undefined": 0, "pl": 0, "wr": 0}
         super().reset(seed=seed)
 
@@ -111,9 +110,12 @@ class M5TradingEnv(gym.Env):
                 start_idx = self.window + self.global_step
                 end_idx = min(start_idx + self.episode_steps, len(self.df))
                 self.episode_indices = range(start_idx, end_idx)
-                print("{}, start idx: {}, end idx: {}".format(self. mode, min(self.episode_indices), max(self.episode_indices)))
+                print("{}, start idx: {}, end idx: {}".format(self.mode, min(self.episode_indices),
+                                                              max(self.episode_indices)))
         else:
             self.episode_indices = range(self.window, len(self.df))
+            print("{}, start idx: {}, end idx: {}".format(self.mode, min(self.episode_indices),
+                                                          max(self.episode_indices)))
 
         self.current_step = 0
         self.episode_count += 1
@@ -183,15 +185,15 @@ class M5TradingEnv(gym.Env):
             drawdown = self.max_equity - self.equity
             self.max_drawdown = max(drawdown, self.max_drawdown)
             drawdown = (drawdown / self.max_drawdown) * self.max_tp * 0.2
-            reward = pnl # - drawdown
+            reward = pnl  # - drawdown
             # print(pnl, -drawdown, reward)
             # breakpoint()
 
-                # print(fwd)
-                # print("tp: {}, sl: {}".format(tp, sl))
-                # print("{}, entry_price: {}, tp_price: {}, sl_price: {}".format(direction, entry_price, tp_price,
-                #                                                                sl_price))
-                # input()
+            # print(fwd)
+            # print("tp: {}, sl: {}".format(tp, sl))
+            # print("{}, entry_price: {}, tp_price: {}, sl_price: {}".format(direction, entry_price, tp_price,
+            #                                                                sl_price))
+            # input()
         else:
             self.episode_stats["holds"] += 1
 
@@ -201,10 +203,17 @@ class M5TradingEnv(gym.Env):
         terminated = truncated
 
         obs = self._get_obs() if not terminated else np.zeros(self.obs_dim, dtype=np.float32)
-        total_trades = self.episode_stats["tp"] + self.episode_stats["sl"] + self.episode_stats["timeout"] + self.episode_stats["undefined"]
+        total_trades = self.episode_stats["tp"] + self.episode_stats["sl"] + self.episode_stats["timeout"] + \
+                       self.episode_stats["undefined"]
         self.episode_stats["wr"] = self.episode_stats["tp"] / max(total_trades, 1)
         info = dict()
         info["episode_stats"] = self.episode_stats.copy()
         info["date"] = self.df.loc[self.current_step, "time"]
         info["episode_count"] = self.episode_count
+
+        if terminated and self.mode == "val":
+            print(self.mode, self.episode_stats)
+            with open(self.log_file, "a") as f:
+                f.write(json.dumps(self.episode_stats) + "\n")
+
         return obs, reward, terminated, truncated, info

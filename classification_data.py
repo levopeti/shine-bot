@@ -1,7 +1,8 @@
+import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from dqn_train import load_gold_m5
+from rl_train import load_gold_m5
 
 
 def make_labels(df: pd.DataFrame, frw_window: int, tp_limit: int, sl_limit: int) -> pd.DataFrame:
@@ -35,6 +36,21 @@ def make_labels(df: pd.DataFrame, frw_window: int, tp_limit: int, sl_limit: int)
     print("sell: {}, {:.2}%".format(sell, sell / len(df)))
     print("buy: {}, {:.2}%".format(buy, buy / len(df)))
     print("hold: {}, {:.2}%".format(hold, hold / len(df)))
+    return df
+
+def make_labels_2(df: pd.DataFrame, frw_window: int, tp_thresh: float, sl_thresh: float) -> pd.DataFrame:
+    df['future_max'] = df['close'].rolling(frw_window).max() / df['close'] - 1
+    df['future_min'] = df['close'].rolling(frw_window).min() / df['close'] - 1
+    df['future_return'] = df['close'].shift(-frw_window) / df['close'] - 1
+
+    df['label'] = "hold"  # hold
+    df.loc[df['future_max'] >= tp_thresh, 'label'] = "buy"  # buy
+    df.loc[df['future_min'] <= -sl_thresh, 'label'] = "sell"  # sell
+
+    df['y_tp'] = np.maximum(df['future_max'], 0.01)  # min 1%
+    df['y_sl'] = np.abs(np.minimum(df['future_min'], -0.01))  # abs min 1%
+
+    df.dropna(inplace=True)  # Train data kész
     return df
 
 

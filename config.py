@@ -6,13 +6,14 @@ from pathlib import Path
 class Config:
     DATA_CSV_PATH = "./XAU_5m_data.csv"
     MODEL_DIR = Path("./models") / datetime.now().strftime('%Y-%m-%d-%H-%M')
+    EVAL_LOG_FILE = MODEL_DIR / "eval.log"
 
     # ENV TODO: lot multiplier
     TRAIN_EPISODE_STEPS = 10_000
-    WINDOW_H = 48
+    WINDOW_H = 72
     FWD_WINDOW = 5001
     TP_SL_RATIO = [1.5, 2, 3] #  [1.5, 2, 3], [2]
-    SL_LEVELS = [3, 4, 5, 8] #  [3, 4, 5, 8], [10]
+    SL_LEVELS = [10] #  [3, 4, 5, 8], [10]
     NORMALIZE = False
     RANDOM_INDICES = False
 
@@ -26,9 +27,9 @@ class Config:
     EXPLR_FINAL_EPS = 0.01
     TRAIN_FREQ = 4
     T_U_I = 1000
-    TOTAL_STEPS = 10_000_000
+    TOTAL_STEPS = 100_000_000
 
-    EVAL_FREQ = 200_000
+    EVAL_FREQ = 100_000
 
     @classmethod
     def to_dict(cls) -> dict:

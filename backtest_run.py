@@ -3,7 +3,7 @@ from stable_baselines3 import DQN
 from backtesting import Backtest, Strategy
 from torch.backends.mkl import verbose
 
-from dqn_train import load_gold_m5, M5TradingEnv
+from rl_train import load_gold_m5, M5TradingEnv
 
 
 def collect_trades(model, env):
