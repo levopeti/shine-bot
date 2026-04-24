@@ -40,18 +40,21 @@ class InceptionModule(Module):
                                              kernel_size=kernel_sizes[0],
                                              stride=1,
                                              padding=kernel_sizes[0] // 2,
+                                             # groups=n_filters,
                                              bias=False)
         self.conv_from_bottleneck_2 = Conv1d(in_channels=bottleneck_channels,
                                              out_channels=n_filters,
                                              kernel_size=kernel_sizes[1],
                                              stride=1,
                                              padding=kernel_sizes[1] // 2,
+                                             # groups=n_filters,
                                              bias=False)
         self.conv_from_bottleneck_3 = Conv1d(in_channels=bottleneck_channels,
                                              out_channels=n_filters,
                                              kernel_size=kernel_sizes[2],
                                              stride=1,
                                              padding=kernel_sizes[2] // 2,
+                                             # groups=n_filters,
                                              bias=False)
         self.conv_from_maxpool = Conv1d(in_channels=in_channels,
                                         out_channels=n_filters,

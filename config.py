@@ -9,27 +9,60 @@ class Config:
     EVAL_LOG_FILE = MODEL_DIR / "eval.log"
 
     # ENV TODO: lot multiplier
-    TRAIN_EPISODE_STEPS = 10_000
+    # TODO: adaptive episode length
+    """
+    initial_ep_length = 100
+    max_ep_length = 1000
+
+    # Ha az entropy csökken (policy konvergál), növeld az epizódot
+    if policy_entropy < entropy_threshold:
+        episode_length = min(episode_length * 1.5, max_ep_length)
+    """
+    TRAIN_EPISODE_STEPS = 1000
     WINDOW_H = 72
+    TOTAL_STEPS = 2_000_000
+    EVAL_FREQ = 10_000
+    N_ENVS = 8
+
+    FROM_TRAIN = datetime(2008, 9, 12)  # datetime(2008, 9, 12)
+    FROM_TEST = datetime(2023, 12, 24)  # datetime(2024, 9, 12)
+    FROM_DROP = datetime(2024, 12, 24)  # datetime(2025, 9, 13)
+
     FWD_WINDOW = 5001
-    TP_SL_RATIO = [1.5, 2, 3] #  [1.5, 2, 3], [2]
+    TP_SL_RATIO = [1.5] #  [1.5, 2, 3], [2], [1, 1.5, 2, 3]
     SL_LEVELS = [10] #  [3, 4, 5, 8], [10]
-    NORMALIZE = False
+    NORMALIZE = True
     RANDOM_INDICES = False
 
     # MODEL
-    NET_ARCH = [128]
-    LR = 1e-4
-    BUFFER_SIZE = 100_000
-    BATCH_SIZE = 64
+    FEATURE_DIM = 512
+    KERNEL_SIZES = (9, 19, 39)
+    BOTTLENECK_CHANNELS = 32
+    N_FILTERS = 64
+    
+    NET_ARCH = [256]
+    START_LR = 5e-5
+    END_LR = 1e-5
+    BATCH_SIZE = 512  # cnn1d 256
     GAMMA = 0.99
+    N_EPOCHS = 4
+
+    # DQN
+    BUFFER_SIZE = 100_000
     EXPLR_FRACTION = 0.25
     EXPLR_FINAL_EPS = 0.01
     TRAIN_FREQ = 4
     T_U_I = 1000
-    TOTAL_STEPS = 100_000_000
 
-    EVAL_FREQ = 100_000
+    # PPO
+    N_STEPS = 2048
+    GEA_LAMBDA = 0.95
+    CLIP_RANGE = 0.2
+    PPO_ENT_COEF = 0.02
+    VF_COEF = 0.5
+    MAX_GRAD_NORM = 0.5
+    TARGET_KL = 0.02
+
 
     @classmethod
     def to_dict(cls) -> dict:
@@ -42,7 +75,7 @@ class Config:
             if isinstance(v, classmethod):
                 continue
             # Path -> str (JSON‑barát)
-            if isinstance(v, Path):
+            if isinstance(v, (Path, datetime)):
                 d[k] = str(v)
             else:
                 d[k] = v

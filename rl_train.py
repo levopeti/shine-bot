@@ -1,140 +1,111 @@
 from pprint import pprint
 import warnings
+
+from matplotlib import pyplot as plt
 from tqdm import tqdm
 from datetime import datetime
 from stable_baselines3 import DQN, PPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback, CallbackList
+from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.vec_env import sync_envs_normalization, VecNormalize
 
 from conv1d import Conv1DFeaturesExtractor
 from data_utils import load_gold_m5, create_features
 from inception_time import InceptionTime
+from inception_time2d import InceptionTime2D
 from only_gold_env import M5TradingEnv, ConfidentEnv
 from config import Config
+from synthetic_data import generate_synthetic_candles
+from rl_debug import SyncNormalizeEvalCallback, cosine_schedule, add_normalized_features, ProgressCallback, add_atr
 
 warnings.filterwarnings("ignore")
 
 
-class ProgressCallback(BaseCallback):
-    def __init__(self, total_timesteps):
-        super().__init__()
-        self.total = total_timesteps
-        self.pbar = None
-
-    def _on_training_start(self):
-        self.pbar = tqdm(total=self.total, desc="Train")
-
-    def _on_step(self) -> bool:
-        postfix = dict()
-        # if hasattr(self.logger, "name") and self.logger.name:
-        # postfix.update({
-        #     # "eps": f"{self.training_env.get_attr('epsilon')[0]:.3f}" if hasattr(self.training_env, 'get_attr') else "?",
-        #     "loss": f"{self.locals.get('loss', '?')}",
-        #     "mean_r": f"{self.locals.get('episode_reward', '?')}"
-        # })
-
-        # if self.locals.get("infos", [{}])[0].get("is_success") or self.locals.get("dones", [False])[0]:
-        # self.episode_count += 1
-        stats = self.locals["infos"][0]["episode_stats"]
-        episode_count = self.locals["infos"][0]["episode_count"]
-
-        postfix.update({
-            "ep": episode_count,
-            "TP": f"{stats['tp']}",
-            "SL": f"{stats['sl']}",
-            "H": f"{stats['holds']}",
-            "TO": f"{stats['timeout']}",
-            "UD": f"{stats['undefined']}",
-            "PL": f"{stats['pl']}",
-            "WR": f"{stats['wr'] * 100:.0f}%"
-        })
-
-        self.pbar.set_postfix(postfix)
-        self.pbar.update(1)
-        return True
-
-    def _on_training_end(self):
-        self.pbar.close()
-
 
 if __name__ == "__main__":
-    # 2025-09-12 23:45:00 2025-10-15 07:55:00, 49424
-    df = load_gold_m5(Config.DATA_CSV_PATH)
+    # train_df = generate_synthetic_candles(n_candles=500000, amplitude_range=(5.0, 50.0), random_seed=6)
+    # test_df = generate_synthetic_candles(n_candles=10000, amplitude_range=(5.0, 50.0), random_seed=8)
+
+    # train_df.plot(x='time')
+    # plt.show()
+    # exit()
+
+    features = [
+        # 'open', 'high', 'low', 'close',  # 'volume',
+        # 'log_ret',
+        'vol_20',
+        'close_over_ma',
+        # 'body_ratio',
+        'rsi_14', 'rsi_7',
+        'macd', 'macd_sig',
+        # 'atr_14',
+        'bb_z',
+        'donch_high_ratio', 'donch_low_ratio',
+        # 'ma_15m_20'
+    ]
+    
+    features += [
+        'feat_close_ret',
+        'feat_body',
+        'feat_upper_wick',
+        'feat_lower_wick',
+        'feat_volume',
+        'feat_hl_range',
+        'feat_gap',
+        'feat_atr_ratio',
+    ]
+
+    Config.FEATURES = features
     Config.MODEL_DIR.mkdir(parents=True, exist_ok=True)
     Config.save_json(Config.MODEL_DIR / "config.json")
     pprint(Config.to_dict())
 
-    from_train = datetime(2008, 9, 12)
-    from_test = datetime(2024, 9, 12)
-    from_drop = datetime(2025, 9, 13)
-
-    df = df.loc[df["time"] < from_drop]
-
-    train_df = df[df["time"] < from_test].reset_index(drop=True)
-    train_df = train_df[train_df["time"] > from_train].reset_index(drop=True)
-
-    test_df = df[df["time"] >= from_test].reset_index(drop=True)
-
+    # 2025-09-12 23:45:00 2025-10-15 07:55:00, 49424
+    df = load_gold_m5(Config.DATA_CSV_PATH)
+    df = df.loc[df["time"] < Config.FROM_DROP]
+    
+    train_df = df[df["time"] < Config.FROM_TEST].reset_index(drop=True)
+    train_df = train_df[train_df["time"] > Config.FROM_TRAIN].reset_index(drop=True)
+    
+    test_df = df[df["time"] >= Config.FROM_TEST].reset_index(drop=True)
+    
     train_df = create_features(train_df)
     train_df.dropna(inplace=True)
-
+    train_df = add_normalized_features(train_df, window=20, clip=3.0)
+    train_df = add_atr(train_df)
+    print(train_df[features].describe().round(3))
+    
     test_df = create_features(test_df)
     test_df.dropna(inplace=True)
+    test_df = add_normalized_features(test_df, window=20, clip=3.0)
+    test_df = add_atr(test_df)
+    print(test_df[features].describe().round(3))
 
     print(f"Train: {train_df['time'].iloc[0]} – {train_df['time'].iloc[-1]} | {len(train_df):,}")
     print(f"Test:  {test_df['time'].iloc[0]} – {test_df['time'].iloc[-1]} | {len(test_df):,}")
 
-    features = [
-        'open', 'high', 'low', 'close', 'volume',
-        'log_ret', 'vol_20',
-        'close_over_ma', 'body_ratio',
-        'rsi_14', 'rsi_7',
-        'macd', 'macd_sig',
-        'atr_14', 'bb_z',
-        'donch_high_ratio', 'donch_low_ratio',
-        # 'ma_15m_20'  # multi‑tf feature
-    ]
-
-    train_env = M5TradingEnv(train_df, features)
-    test_env = M5TradingEnv(test_df, features, mode="val")
-
-
-    mlp_policy_kwargs = dict(net_arch=[1024, 512, 128])
-    cnn_policy_kwargs = dict(
-        features_extractor_class=Conv1DFeaturesExtractor,
-        features_extractor_kwargs=dict(features_dim=1024),
-        net_arch=[512, 256]  # MLP
-    )
-    inception_policy_kwargs = dict(
-        features_extractor_class=InceptionTime,
-        features_extractor_kwargs=dict(features_dim=256, in_channels=len(features), window_h=Config.WINDOW_H),
-        net_arch=Config.NET_ARCH  # MLP
+    vec_env = make_vec_env(lambda: M5TradingEnv(train_df, features), n_envs=Config.N_ENVS)
+    vec_env = VecNormalize(
+        vec_env,
+        norm_obs=True,  # observation normalizálás
+        norm_reward=True,  # reward normalizálás — EZ A KULCS
+        clip_reward=10.0,  # ne legyenek extrém reward értékek
+        gamma=0.99
     )
 
-    model = PPO(
-        "MlpPolicy", train_env,
-        learning_rate=Config.LR,
-        # buffer_size=Config.BUFFER_SIZE,
-        batch_size=Config.BATCH_SIZE,
-        gamma=Config.GAMMA,
-        # exploration_fraction=Config.EXPLR_FRACTION,
-        # exploration_final_eps=Config.EXPLR_FINAL_EPS,
-        # train_freq=Config.TRAIN_FREQ,
-        # target_update_interval=Config.T_U_I,
-        verbose=0,
-        policy_kwargs=inception_policy_kwargs,
-        tensorboard_log=Config.MODEL_DIR / "tensorboard_logs/",
-        device="cuda"
+    test_env = make_vec_env(
+        lambda: M5TradingEnv(test_df, features, mode="val"), n_envs=1
     )
-    policy = model.policy
-    # print(policy.features_extractor)
-    # print(policy.q_net)
-    # exit()
+    test_env = VecNormalize(
+        test_env,
+        norm_obs=True,
+        norm_reward=False,  # ← eval-nál MINDIG False — igazi reward-ot akarunk
+        clip_reward=10.0,
+        gamma=0.99,
+        training=False,  # ← statisztika NE frissüljön az eval env-ben
+    )
 
-    # confident_env = ConfidentEnv(train_env, model)
-    # model.set_env(confident_env)
-
-    print("learning")
-    eval_callback = EvalCallback(
+    eval_callback = SyncNormalizeEvalCallback(
         test_env,
         eval_freq=Config.EVAL_FREQ,
         n_eval_episodes=1,
@@ -142,22 +113,39 @@ if __name__ == "__main__":
         log_path=Config.MODEL_DIR / "eval_log",
         best_model_save_path=Config.MODEL_DIR / "best_model",
         verbose=1,
-        render=True
-    )
-    datetime.now().strftime('%Y-%m-%d-%H-%M')
-
-    checkpoint_callback = CheckpointCallback(
-        save_freq=500_000,
-        save_path=Config.MODEL_DIR / 'saved_models',
-        name_prefix='dqn_swing',
-        save_replay_buffer=True,
-        save_vecnormalize=True,
-        verbose=1
     )
 
-    model.learn(total_timesteps=Config.TOTAL_STEPS,
+    inception_policy_kwargs = dict(
+        features_extractor_class=InceptionTime,
+        features_extractor_kwargs=dict(features_dim=Config.FEATURE_DIM, in_channels=len(features), window_h=Config.WINDOW_H, kernel_sizes=Config.KERNEL_SIZES, n_filters=Config.N_FILTERS,
+        bottleneck_channels=Config.BOTTLENECK_CHANNELS),
+        net_arch=Config.NET_ARCH  # MLP
+    )
+
+    model = PPO(
+        policy="MlpPolicy",
+        env=vec_env,
+        # --- Tanulás ---
+        learning_rate=cosine_schedule(Config.START_LR, Config.END_LR),  # kezdeti LR, lineárisan csökkenjen
+        n_steps=Config.N_STEPS,  # rollout buffer mérete (env-enként)
+        batch_size=Config.BATCH_SIZE,  # mini-batch a frissítéshez
+        n_epochs=Config.N_EPOCHS,  # hányszor iterál a bufferen, 10
+        gamma=Config.GAMMA,  # diszkont faktor
+        gae_lambda=Config.GEA_LAMBDA,  # GAE lambda
+        # --- Stabilitás ---
+        clip_range=Config.CLIP_RANGE,  # PPO clip 0.02
+        ent_coef=Config.PPO_ENT_COEF,  # entrópia bónusz — NE állítsd 0-ra!
+        vf_coef=Config.VF_COEF,
+        max_grad_norm=Config.MAX_GRAD_NORM,
+        normalize_advantage=True,
+        # --- Hálózat ---
+        policy_kwargs=inception_policy_kwargs,
+        verbose=1,
+        target_kl=Config.TARGET_KL,  # ha kl > 0.02, leállítja a frissítést az epochon belül
+    )
+    model.learn(total_timesteps=Config.TOTAL_STEPS * Config.N_ENVS,
                 tb_log_name="inception",
-                callback=CallbackList([ProgressCallback(Config.TOTAL_STEPS), eval_callback, checkpoint_callback]),
+                callback=CallbackList([ProgressCallback(Config.TOTAL_STEPS), eval_callback]),
                 log_interval=1,
                 progress_bar=False)
-    model.save(Config.MODEL_DIR / "m5_dqn_trader_5M_inception_final")
+    model.save(Config.MODEL_DIR / "m5_ppo_trader_5M_inception_final")
