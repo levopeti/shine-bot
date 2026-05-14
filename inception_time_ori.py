@@ -78,14 +78,18 @@ class InceptionModule(Module):
 
 class InceptionTime(Module):
     def __init__(self,
+                 features_dim: int,
                  in_channels: int,
-                 out_size: int,
+                 window: int,
                  n_filters: int = 32,
                  kernel_sizes: tuple = (9, 19, 39),
                  bottleneck_channels: int = 32,
                  use_residual: bool = True,
                  activation: Module = ReLU()):
         super().__init__()
+        self.n_features = in_channels
+        self.window = window
+
         self.use_residual = use_residual
         self.activation = activation
         self.inception_1 = InceptionModule(in_channels=in_channels,
@@ -111,9 +115,18 @@ class InceptionTime(Module):
                                               padding=0),
                                        BatchNorm1d(num_features=4 * n_filters))
         self.global_avg_pool = AdaptiveAvgPool1d(1)
-        self.linear = Linear(4 * n_filters, out_size)
+        self.linear = Linear(4 * n_filters, features_dim)
 
-    def forward(self, x):
+    def _reshape_input(self, obs: torch.Tensor) -> torch.Tensor:
+        # obs shape: (batch, length)
+        batch_size = obs.shape[0]
+        x = obs.view(batch_size, self.window, self.n_features)
+        x = x.permute(0, 2, 1)
+        # (batch, channels=6, length)
+        return x
+
+    def forward(self, observations: torch.Tensor):
+        x = self._reshape_input(observations)
         z = self.inception_1(x)
         z = self.inception_2(z)
         z = self.inception_3(z)

@@ -59,15 +59,15 @@ color_map = {
 # df.plot(x="time", y="close", color=c)
 plt.scatter(df_1.index,
             df_1["Close"],
-            # color=c,
+            color="b",
             s=1)
 plt.scatter(df_5.index,
             df_5["Close"],
-            # color=c,
+            color="r",
             s=1)
 plt.scatter(df_15.index,
             df_15["Close"],
-            # color=c,
+            color="g",
             s=1)
 plt.grid()
 plt.show()

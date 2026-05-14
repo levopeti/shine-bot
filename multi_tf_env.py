@@ -1,39 +1,16 @@
 import json
 import random
-from time import time
-
+import pandas as pd
 import gymnasium as gym
 import numpy as np
-from pprint import pprint
 
-import pandas as pd
 from gymnasium import spaces
-
 from config import Config
+from pprint import pprint
+from time import time
 
 
-
-class ConfidentEnv(gym.Wrapper):
-    def __init__(self, env, model, threshold=0.3):
-        super().__init__(env)
-        self.model = model
-        self.threshold = threshold
-
-    def step(self, action):
-        obs = self.env._get_obs()
-
-        _, q_values = self.model.predict(obs, deterministic=True)
-        confidence = q_values.max() - q_values.mean()
-        print(confidence)
-        input()
-
-        if confidence < self.threshold:
-            action = 0  # Force HOLD
-
-        return self.env.step(action)
-
-
-class M5TradingEnv(gym.Env):
+class MultyTFTradingEnv(gym.Env):
     """
     Observation: 12 M5 gyertya (open,close,high,low,volume,rsi) + aktuális open
     Action:      0=Hold, 1..9=Buy+TP/SL, 10..18=Sell+TP/SL
@@ -41,11 +18,12 @@ class M5TradingEnv(gym.Env):
     """
     metadata = {"render_modes": []}
 
-    def __init__(self, df, features, mode="train"):
+    def __init__(self, df_dict, mode="train", save_log=True):
         super().__init__()
-        self.df = df.reset_index(drop=True)
+        n_macro = df_dict["macro"].shape[1] + 3  # +time (4) - "time" column (1)
+        self.df_dict = df_dict
         self.log_file = Config.EVAL_LOG_FILE
-        self.window = Config.WINDOW
+        self.window_dict = Config.WINDOW_DICT
         self.fwd_window = Config.FWD_WINDOW
         self.episode_steps = Config.TRAIN_EPISODE_STEPS
         self.episode_indices = list()
@@ -55,7 +33,8 @@ class M5TradingEnv(gym.Env):
         # self.normalize = Config.NORMALIZE
         self.random_indices = Config.RANDOM_INDICES
         self.mode = mode
-        self.features = features
+        self.features = Config.FEATURES
+        self.save_log = save_log
 
         self.equity = 10_000.0
         self.max_equity = 10_000.0
@@ -72,10 +51,25 @@ class M5TradingEnv(gym.Env):
             self.action_space = spaces.Discrete(1 + 2 * n_combos)
             self._build_action_map()
 
-        self.obs_dim = self.window * len(self.features)
-        # self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(self.obs_dim,), dtype=np.float32)
-        self.observation_space = spaces.Box(low=-3., high=3., shape=(self.obs_dim,), dtype=np.float32)
+        self.m5_obs_dim = self.window_dict["m5m"] * len(self.features)
+        self.observation_space = spaces.Dict({
+            timeframe: spaces.Box(low=-3, high=3,
+                                  shape=(self.window_dict[timeframe] * len(self.features),), dtype=np.float32)
+            for timeframe in self.window_dict.keys()
+        })
+        self.observation_space["macro"] = gym.spaces.Box(-np.inf, np.inf, shape=(n_macro,), dtype=np.float32)
         self.episode_stats = dict()
+        self.episode_indices_list = list()
+        if self.mode == "val":
+            self.calculate_episode_indices()
+
+    def calculate_episode_indices(self):
+        episode_indices_full = range(self.window_dict["m5m"] + 1200, len(self.df_dict["m5m"]))
+        for episode_count in range(Config.NUM_EVAL_EPISODES):
+            episode_indices = episode_indices_full[self.episode_steps * episode_count:self.episode_steps * (episode_count + 1)]
+            assert len(episode_indices) > 0, episode_count
+            self.episode_indices_list.append(episode_indices)
+
 
     def _build_action_map(self):
         """0=Hold; 1-12=Buy; 13-24=Sell"""
@@ -89,10 +83,37 @@ class M5TradingEnv(gym.Env):
                 idx += 1
         assert len(self.action_map) == 2 * len(self.TP_SL_RATIO) * len(self.SL_LEVELS) + 1
 
+    def _get_m_obs(self, timeframe, last_ts):
+        df = self.df_dict[timeframe][self.df_dict[timeframe]["time"] <= last_ts]  # .reset_index(drop=True)
+        window_data = df.iloc[-self.window_dict[timeframe]:]
+        obs = window_data[self.features].values.flatten().astype(np.float32)
+        return obs
+
+    def _get_macro_obs(self, ts: pd.Timestamp) -> np.ndarray:
+        # Macro feature-ök a DataFrame-ből
+        idx = self.df_dict["macro"]["time"].searchsorted(ts, side="right") - 1
+        idx = max(0, min(idx, len(self.df_dict["macro"]) - 1))
+        macro_vals = self.df_dict["macro"].drop(columns="time").iloc[idx].values.astype(np.float32)
+
+        # Sinusos időkódolás az aktuális timestamp-ből
+        minutes = ts.hour * 60 + ts.minute
+        day_of_week = ts.dayofweek  # 0=hétfő, 4=péntek
+
+        time_sin = np.sin(2 * np.pi * minutes / 1440).astype(np.float32)
+        time_cos = np.cos(2 * np.pi * minutes / 1440).astype(np.float32)
+        day_sin = np.sin(2 * np.pi * day_of_week / 5).astype(np.float32)
+        day_cos = np.cos(2 * np.pi * day_of_week / 5).astype(np.float32)
+
+        time_enc = np.array([time_sin, time_cos, day_sin, day_cos], dtype=np.float32)
+        return np.concatenate([macro_vals, time_enc])  # shape: (n_macro + 4,)
+
     def _get_obs(self):
         # TODO: current price
-        idx = self.episode_indices[self.current_step]
-        window_data = self.df.iloc[idx - self.window:idx]
+        try:
+          idx = self.episode_indices[self.current_step]
+        except IndexError:
+            breakpoint()
+        window_data = self.df_dict["m5m"].iloc[idx - self.window_dict["m5m"]:idx]
 
         # if self.normalize:
         #     window_data[["open", "close", "high", "low"]] -= window_data[["open", "close", "high", "low"]].iloc[0]
@@ -101,32 +122,49 @@ class M5TradingEnv(gym.Env):
         # obs = window_data[["open", "close", "high", "low", "volume", "rsi"]].values.flatten().astype(np.float32)
         obs = window_data[self.features].values.flatten().astype(np.float32)
         # obs = obs.reshape(self.window, len(self.features))
+        last_ts = window_data["time"].iloc[-1]
+
+        obs = {
+            "m5m": obs,
+            "m1h": self._get_m_obs("m1h", last_ts),
+            "m4h": self._get_m_obs("m4h", last_ts),
+            "macro": self._get_macro_obs(last_ts),
+        }
         return obs
 
     def reset(self, seed=None, options=None):
-        self.episode_stats = {"buy": 0, "sell": 0, "holds": 0, "tp": 0, "sl": 0, "timeout": 0, "undefined": 0, "pl": 0, "wr": 0}
+        if self.mode == "train" or (self.mode == "val" and  self.episode_count == 0):
+            self.episode_stats = {"buy": 0, "sell": 0, "holds": 0, "tp": 0, "sl": 0, "timeout": 0, "undefined": 0,
+                                  "pl": 0, "wr": 0}
         super().reset(seed=seed)
 
-        if len(self.episode_indices) > 0 and self.episode_indices[-1] == len(self.df) - 1:
+        if len(self.episode_indices) > 0 and self.episode_indices[-1] == len(self.df_dict["m5m"]) - 1:
             self.global_step = 0
 
         if self.mode == "train":
             if self.random_indices:
-                self.episode_indices = random.sample(range(self.window, len(self.df)), self.episode_steps)
+                self.episode_indices = random.sample(range(self.window_dict["m5m"], len(self.df_dict["m5m"])),
+                                                     self.episode_steps)
             else:
                 # start_idx = self.window + self.global_step
-                start_idx = random.randint(self.window, len(self.df) - self.episode_steps - self.window)
-                end_idx = min(start_idx + self.episode_steps, len(self.df))
+                start_idx = random.randint(self.window_dict["m5m"] + 1200,  # 1000 for sure
+                                           len(self.df_dict["m5m"]) - self.episode_steps - self.window_dict["m5m"])
+                end_idx = min(start_idx + self.episode_steps, len(self.df_dict["m5m"]))
                 self.episode_indices = range(start_idx, end_idx)
                 # print("{}, start idx: {}, end idx: {}".format(self.mode, min(self.episode_indices),
                 #                                               max(self.episode_indices)))
+            self.episode_count += 1
         else:
-            self.episode_indices = range(self.window, len(self.df))
-            # print("{}, start idx: {}, end idx: {}".format(self.mode, min(self.episode_indices),
+            if self.episode_count >= len(self.episode_indices_list):
+                self.episode_count = 0
+            else:
+                self.episode_indices = self.episode_indices_list[self.episode_count]
+                self.episode_count += 1
+            # print("{}, {}, start idx: {}, end idx: {}".format(self.mode, self.episode_count, min(self.episode_indices),
             #                                               max(self.episode_indices)))
 
         self.current_step = 0
-        self.episode_count += 1
+
         self.equity = 10_000.0
         self.max_equity = 10_000.0
         self.max_drawdown = 1
@@ -146,13 +184,13 @@ class M5TradingEnv(gym.Env):
             direction, tp_sl, sl = self.action_map[action]
 
         idx = self.episode_indices[self.current_step]
-        entry_price = self.df.loc[idx, "open"]
-        atr = self.df.loc[idx, "atr"]
+        entry_price = self.df_dict["m5m"].loc[idx, "open"]
+        atr = self.df_dict["m5m"].loc[idx, "atr"]
 
         if np.isnan(atr) or atr < 1e-8:
             direction = "hold"
 
-        reward = -0.005 * atr
+        reward = Config.HOLD_MLT * atr
 
         if direction != "hold":
             # tp_price = entry_price * (1 + tp_pct) if direction == "buy" else entry_price * (1 - tp_pct)
@@ -165,7 +203,7 @@ class M5TradingEnv(gym.Env):
             sl_price = entry_price - sl if direction == "buy" else entry_price + sl
 
             # end_idx = min(self.current_step + self.fwd_window, len(self.df) - 1)
-            fwd = self.df.iloc[idx + 1:idx + self.fwd_window]
+            fwd = self.df_dict["m5m"].iloc[idx + 1:idx + self.fwd_window]
             hit_tp = hit_sl = undefined = False
 
             if direction == "buy":
@@ -237,18 +275,20 @@ class M5TradingEnv(gym.Env):
         truncated = self.current_step >= len(self.episode_indices)
         terminated = truncated
 
-        obs = self._get_obs() if not terminated else np.zeros(self.obs_dim, dtype=np.float32)
+        obs = self._get_obs() if not terminated else np.zeros(self.m5_obs_dim, dtype=np.float32)
         total_trades = self.episode_stats["tp"] + self.episode_stats["sl"] + self.episode_stats["timeout"] + \
                        self.episode_stats["undefined"]
         self.episode_stats["wr"] = self.episode_stats["tp"] / max(total_trades, 1)
         info = dict()
         info["episode_stats"] = self.episode_stats.copy()
-        info["date"] = self.df.loc[self.current_step, "time"]
+        info["date"] = self.df_dict["m5m"].loc[self.current_step, "time"]
         info["episode_count"] = self.episode_count
 
-        if terminated and self.mode == "val":
-            print(self.mode, self.episode_stats)
-            with open(self.log_file, "a") as f:
-                f.write(json.dumps(self.episode_stats) + "\n")
+        if terminated and self.mode == "val" and self.episode_count >= len(self.episode_indices_list):
+            self.global_step = 0
+            if self.save_log:
+                print(self.mode, self.episode_stats)
+                with open(self.log_file, "a") as f:
+                    f.write(json.dumps(self.episode_stats) + "\n")
 
         return obs, reward, terminated, truncated, info

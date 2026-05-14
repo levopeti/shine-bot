@@ -10,7 +10,7 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import sync_envs_normalization, VecNormalize
 
 from conv1d import Conv1DFeaturesExtractor
-from data_utils import load_gold_m5, create_features
+from data_utils import create_features, load_gold
 from inception_time import InceptionTime
 from inception_time2d import InceptionTime2D
 from only_gold_env import M5TradingEnv, ConfidentEnv
@@ -30,59 +30,12 @@ if __name__ == "__main__":
     # plt.show()
     # exit()
 
-    features = [
-        # 'open', 'high', 'low', 'close',  # 'volume',
-        # 'log_ret',
-        'vol_20',
-        'close_over_ma',
-        # 'body_ratio',
-        'rsi_14', 'rsi_7',
-        'macd', 'macd_sig',
-        # 'atr_14',
-        'bb_z',
-        'donch_high_ratio', 'donch_low_ratio',
-        # 'ma_15m_20'
-    ]
-    
-    features += [
-        'feat_close_ret',
-        'feat_body',
-        'feat_upper_wick',
-        'feat_lower_wick',
-        'feat_volume',
-        'feat_hl_range',
-        'feat_gap',
-        'feat_atr_ratio',
-    ]
 
-    Config.FEATURES = features
     Config.MODEL_DIR.mkdir(parents=True, exist_ok=True)
     Config.save_json(Config.MODEL_DIR / "config.json")
     pprint(Config.to_dict())
 
-    # 2025-09-12 23:45:00 2025-10-15 07:55:00, 49424
-    df = load_gold_m5(Config.DATA_CSV_PATH)
-    df = df.loc[df["time"] < Config.FROM_DROP]
-    
-    train_df = df[df["time"] < Config.FROM_TEST].reset_index(drop=True)
-    train_df = train_df[train_df["time"] > Config.FROM_TRAIN].reset_index(drop=True)
-    
-    test_df = df[df["time"] >= Config.FROM_TEST].reset_index(drop=True)
-    
-    train_df = create_features(train_df)
-    train_df.dropna(inplace=True)
-    train_df = add_normalized_features(train_df, window=20, clip=3.0)
-    train_df = add_atr(train_df)
-    print(train_df[features].describe().round(3))
-    
-    test_df = create_features(test_df)
-    test_df.dropna(inplace=True)
-    test_df = add_normalized_features(test_df, window=20, clip=3.0)
-    test_df = add_atr(test_df)
-    print(test_df[features].describe().round(3))
 
-    print(f"Train: {train_df['time'].iloc[0]} – {train_df['time'].iloc[-1]} | {len(train_df):,}")
-    print(f"Test:  {test_df['time'].iloc[0]} – {test_df['time'].iloc[-1]} | {len(test_df):,}")
 
     vec_env = make_vec_env(lambda: M5TradingEnv(train_df, features), n_envs=Config.N_ENVS)
     vec_env = VecNormalize(
@@ -117,7 +70,7 @@ if __name__ == "__main__":
 
     inception_policy_kwargs = dict(
         features_extractor_class=InceptionTime,
-        features_extractor_kwargs=dict(features_dim=Config.FEATURE_DIM, in_channels=len(features), window_h=Config.WINDOW_H, kernel_sizes=Config.KERNEL_SIZES, n_filters=Config.N_FILTERS,
+        features_extractor_kwargs=dict(features_dim=Config.FEATURE_DIM, in_channels=len(features), window=Config.WINDOW, kernel_sizes=Config.KERNEL_SIZES, n_filters=Config.N_FILTERS,
         bottleneck_channels=Config.BOTTLENECK_CHANNELS),
         net_arch=Config.NET_ARCH  # MLP
     )

@@ -93,15 +93,15 @@ class InceptionTime(BaseFeaturesExtractor):
                  observation_space: spaces.Box,
                  features_dim: int,
                  in_channels: int,
+                 window: int,
                  n_filters: int = 32,
-                 window_h: int = 12,
                  kernel_sizes: tuple = (9, 19, 39),
                  bottleneck_channels: int = 32,
                  use_residual: bool = True,
                  activation: Module = ReLU()):
         super().__init__(observation_space, features_dim)
         self.n_features = in_channels
-        self.window = window_h * 12
+        self.window = window
 
         self.use_residual = use_residual
         self.activation = activation

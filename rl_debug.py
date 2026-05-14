@@ -50,7 +50,7 @@ class ProgressCallback(BaseCallback):
             "SL": f"{stats['sl']}",
             "TO": f"{stats['timeout']}",
             "UD": f"{stats['undefined']}",
-            "PL": f"{stats['pl']:.0f}",
+            "PL": f"{stats['pl']:.2f}",
             "WR": f"{stats['wr'] * 100:.0f}%"
         })
 
@@ -85,81 +85,6 @@ def cosine_schedule(initial_value: float, final_value: float = 1e-5) -> Callable
         return final_value + cosine_factor * (initial_value - final_value)
 
     return func
-
-
-def add_normalized_features(
-        df: pd.DataFrame,
-        window: int = 20,
-        clip: float = 3.0
-) -> pd.DataFrame:
-    """
-    Előre kiszámolja az összes normalizált OHLCV feature-t és új oszlopokban tárolja.
-
-    Paraméterek
-    -----------
-    df     : DataFrame 'open', 'high', 'low', 'close', 'volume' oszlopokkal
-    window : Rolling z-score ablak mérete gyertyában (alapértelmezett: 20)
-    clip   : Kiugró értékek levágása ± ennyi szórásra (alapértelmezett: 3.0)
-
-    Visszatérési érték
-    ------------------
-    DataFrame az eredeti oszlopokkal + az alábbi új feature oszlopokkal:
-        feat_close_ret    – záróár változás z-score (momentum)
-        feat_body         – gyertya test iránya és mérete z-score
-        feat_upper_wick   – felső kanóc relatív mérete z-score
-        feat_lower_wick   – alsó kanóc relatív mérete z-score
-        feat_volume       – volumen momentum z-score
-        feat_hl_range     – gyertya méret (high-low) z-score
-        feat_gap          – nyitógap az előző záráshoz képest z-score
-    """
-    out = df.copy()
-
-    # --- Nyers relatív értékek ---
-    close_ret = out['close'].pct_change()
-    body = out['close'] / out['open'] - 1
-    upper_wick = out['high'] / out[['open', 'close']].max(axis=1) - 1
-    lower_wick = out[['open', 'close']].min(axis=1) / out['low'] - 1
-    vol_log_ret = np.log(out['volume'] / out['volume'].shift(1))
-    hl_range = (out['high'] - out['low']) / out['close']
-    gap = (out['open'] / out['close'].shift(1) - 1)
-    atr = (out['high'] - out['low']).rolling(14).mean()
-
-    # --- Rolling z-score segédfüggvény ---
-    def rolling_zscore(series: pd.Series, w: int) -> pd.Series:
-        mean = series.rolling(w, min_periods=w).mean()
-        std = series.rolling(w, min_periods=w).std()
-        return (series - mean) / (std + 1e-8)
-
-    # --- Feature oszlopok számítása és cliplelése ---
-    out['feat_close_ret'] = rolling_zscore(close_ret, window).clip(-clip, clip)
-    out['feat_body'] = rolling_zscore(body, window).clip(-clip, clip)
-    out['feat_upper_wick'] = rolling_zscore(upper_wick, window).clip(-clip, clip)
-    out['feat_lower_wick'] = rolling_zscore(lower_wick, window).clip(-clip, clip)
-    out['feat_volume'] = rolling_zscore(vol_log_ret, window).clip(-clip, clip)
-    out['feat_hl_range'] = rolling_zscore(hl_range, window).clip(-clip, clip)
-    out['feat_gap'] = rolling_zscore(gap, window).clip(-clip, clip)
-    out['feat_atr_ratio'] = atr / out['close']  # skálafüggetlen
-
-    # Az első 'window' sor NaN lesz (warmup periódus) — droppolható
-    out.dropna(subset=[c for c in out.columns if c.startswith('feat_')], inplace=True)
-    out.reset_index(drop=True, inplace=True)
-
-    return out
-
-
-def add_atr(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
-    high, low, close = df['high'], df['low'], df['close']
-    prev_close = close.shift(1)
-
-    tr = pd.concat([
-        high - low,  # gyertya terjedelme
-        (high - prev_close).abs(),  # gap felfelé
-        (low - prev_close).abs(),  # gap lefelé
-    ], axis=1).max(axis=1)
-
-    # Wilder-féle simított mozgóátlag (RMA)
-    df['atr'] = tr.ewm(alpha=1 / period, adjust=False).mean()
-    return df
 
 
 if __name__ == "__main__":
